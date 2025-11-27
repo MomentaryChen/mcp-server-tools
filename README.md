@@ -13,6 +13,7 @@ This project contains multiple MCP server implementations that can be used with 
 - **TDengine Tools** (`server-tdengine.js`) - Execute SQL queries against TDengine time-series databases
 - **MongoDB Tools** (`server-mongodb.js`) - Query, insert, update, delete documents in MongoDB collections
 - **File Tools** (`server-read-files.js`) - Read files from the filesystem
+- **Call API Tools** (`server-call-api.js`) - Make HTTP API requests (GET, POST, PUT, DELETE)
 
 ## Prerequisites
 
@@ -30,6 +31,7 @@ npm install
 - `@modelcontextprotocol/sdk` - MCP SDK for building servers
 - `mysql2` - MySQL database driver
 - `mongodb` - MongoDB database driver
+- `axios` - HTTP client for API requests
 - `zod` - Schema validation
 - `fs` - File system operations (built-in Node.js module)
 
@@ -153,6 +155,25 @@ node server-read-files.js
 - `readFile` - Read file contents from the filesystem
   - Parameters: `path` (string) - File path to read
 
+### 6. Call API Tools Server (`server-call-api.js`)
+
+MCP server for making HTTP API requests.
+
+**Usage:**
+```bash
+node server-call-api.js
+```
+
+**Available Tools:**
+- `call_api` - Make HTTP API requests
+  - Parameters:
+    - `method` (string, optional) - HTTP method: "GET", "POST", "PUT", or "DELETE" (default: "GET")
+    - `url` (string) - API endpoint URL
+    - `headers` (object, optional) - HTTP headers as key-value pairs
+    - `body` (any, optional) - Request body for POST/PUT requests
+- `call_hello` - Simple hello tool for testing
+  - Parameters: `name` (string) - Name to greet
+
 ## MCP Client Configuration
 
 To use these servers with Cursor, add them to your MCP configuration file (typically `~/.cursor/mcp.json`):
@@ -181,6 +202,10 @@ To use these servers with Cursor, add them to your MCP configuration file (typic
     "file-tools": {
       "command": "node",
       "args": ["D:/projects/mcp-demo-server/server-read-files.js"]
+    },
+    "call-api-tools": {
+      "command": "node",
+      "args": ["D:/projects/mcp-demo-server/server-call-api.js"]
     }
   }
 }
@@ -197,6 +222,7 @@ mcp-demo-server/
 ├── server-tdengine.js     # TDengine database tools
 ├── server-mongodb.js      # MongoDB database tools
 ├── server-read-files.js   # File reading tools
+├── server-call-api.js     # HTTP API request tools
 ├── package.json           # Project dependencies
 ├── README.md              # English documentation
 └── README_zh.md           # Chinese documentation
@@ -207,6 +233,7 @@ mcp-demo-server/
 - ✅ Multiple MCP server implementations
 - ✅ Database query support (MySQL, TDengine, MongoDB)
 - ✅ MongoDB CRUD operations (Create, Read, Update, Delete)
+- ✅ HTTP API request support (GET, POST, PUT, DELETE)
 - ✅ File system operations
 - ✅ Schema validation using Zod
 - ✅ Error handling and logging
