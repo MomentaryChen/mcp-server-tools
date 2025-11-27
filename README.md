@@ -2,6 +2,8 @@
 
 A collection of Model Context Protocol (MCP) server implementations demonstrating various capabilities including database queries and file operations.
 
+> [中文文档](README_zh.md) | [English Documentation](README.md)
+
 ## Overview
 
 This project contains multiple MCP server implementations that can be used with Cursor or other MCP-compatible clients:
@@ -9,6 +11,7 @@ This project contains multiple MCP server implementations that can be used with 
 - **Basic Demo Server** (`server.js`) - Simple hello world example
 - **MySQL Tools** (`server-mysql.js`) - Execute SQL queries against MySQL databases
 - **TDengine Tools** (`server-tdengine.js`) - Execute SQL queries against TDengine time-series databases
+- **MongoDB Tools** (`server-mongodb.js`) - Query, insert, update, delete documents in MongoDB collections
 - **File Tools** (`server-read-files.js`) - Read files from the filesystem
 
 ## Prerequisites
@@ -26,6 +29,7 @@ npm install
 
 - `@modelcontextprotocol/sdk` - MCP SDK for building servers
 - `mysql2` - MySQL database driver
+- `mongodb` - MongoDB database driver
 - `zod` - Schema validation
 - `fs` - File system operations (built-in Node.js module)
 
@@ -95,7 +99,48 @@ node server-tdengine.js
 - `query_tdengine` - Execute SQL queries against TDengine database
   - Parameters: `sql` (string) - SQL query to execute
 
-### 4. File Tools Server (`server-read-files.js`)
+### 4. MongoDB Tools Server (`server-mongodb.js`)
+
+MCP server for querying and manipulating MongoDB databases.
+
+**Configuration:**
+
+Edit the MongoDB connection settings in `server-mongodb.js`:
+
+```javascript
+const uri = "mongodb://username:password@127.0.0.1:27017";
+const client = new MongoClient(uri);
+await client.connect();
+const db = client.db("your_database_name");
+```
+
+**Usage:**
+```bash
+node server-mongodb.js
+```
+
+**Available Tools:**
+- `query_mongo` - Query documents from a MongoDB collection
+  - Parameters: 
+    - `collection` (string) - Collection name
+    - `query` (object, optional) - MongoDB query filter
+- `mongo_insert` - Insert a document into a MongoDB collection
+  - Parameters:
+    - `collection` (string) - Collection name
+    - `document` (object) - Document to insert
+- `mongo_update` - Update documents in a MongoDB collection
+  - Parameters:
+    - `collection` (string) - Collection name
+    - `filter` (object) - MongoDB filter to match documents
+    - `update` (object) - Update operations
+- `mongo_delete` - Delete documents from a MongoDB collection
+  - Parameters:
+    - `collection` (string) - Collection name
+    - `filter` (object) - MongoDB filter to match documents
+- `list_mongo_collections` - List all collections in the database
+  - Parameters: None
+
+### 5. File Tools Server (`server-read-files.js`)
 
 MCP server for reading files from the filesystem.
 
@@ -129,6 +174,10 @@ To use these servers with Cursor, add them to your MCP configuration file (typic
       "command": "node",
       "args": ["D:/projects/mcp-demo-server/server-tdengine.js"]
     },
+    "mongodb-tools": {
+      "command": "node",
+      "args": ["D:/projects/mcp-demo-server/server-mongodb.js"]
+    },
     "file-tools": {
       "command": "node",
       "args": ["D:/projects/mcp-demo-server/server-read-files.js"]
@@ -146,15 +195,18 @@ mcp-demo-server/
 ├── server.js              # Basic demo server
 ├── server-mysql.js        # MySQL database tools
 ├── server-tdengine.js     # TDengine database tools
+├── server-mongodb.js      # MongoDB database tools
 ├── server-read-files.js   # File reading tools
 ├── package.json           # Project dependencies
-└── README.md              # This file
+├── README.md              # English documentation
+└── README_zh.md           # Chinese documentation
 ```
 
 ## Features
 
 - ✅ Multiple MCP server implementations
-- ✅ Database query support (MySQL, TDengine)
+- ✅ Database query support (MySQL, TDengine, MongoDB)
+- ✅ MongoDB CRUD operations (Create, Read, Update, Delete)
 - ✅ File system operations
 - ✅ Schema validation using Zod
 - ✅ Error handling and logging
