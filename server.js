@@ -10,6 +10,13 @@ server.tool("say_hello",
   })
 );
 
+server.tool("check_health",
+  {},
+  async () => ({
+    content: [{ type: "text", text: "Server is healthy and running" }]
+  })
+);
+
 // 用 stdin/stdout transport
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 const transport = new StdioServerTransport();
