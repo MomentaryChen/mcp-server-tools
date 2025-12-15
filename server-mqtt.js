@@ -125,7 +125,7 @@ if (config.useTls) {
 
 // 存储接收到的消息
 const messageStore = [];
-const maxMessages = 1000; // 最多保存 1000 条消息
+const maxMessages = 10000; // 最多保存 10000 条消息，减小溢出丢失风险
 
 // 建立 MCP Server
 const server = new McpServer({ name: "mqtt-tools", version: "1.0.0" });
@@ -166,7 +166,7 @@ async function connectMQTT() {
       // 订阅启动时指定的主题（如果有）
       if (config.topics.length > 0) {
         config.topics.forEach(topic => {
-          mqttClient.subscribe(topic, (err) => {
+          mqttClient.subscribe(topic, { qos: 1 }, (err) => {
             if (err) {
               console.error(`订阅主题失败 ${topic}:`, err);
             } else {
@@ -339,7 +339,7 @@ server.tool(
     topic: z.string(),
     qos: z.number().min(0).max(2).optional()
   },
-  async ({ topic, qos = 0 }) => {
+  async ({ topic, qos = 1 }) => {
     try {
       if (!isConnected || !mqttClient) {
         return {
@@ -473,7 +473,7 @@ server.tool(
     topics: z.array(z.string()),
     qos: z.number().min(0).max(2).optional()
   },
-  async ({ topics, qos = 0 }) => {
+  async ({ topics, qos = 1 }) => {
     try {
       if (!isConnected || !mqttClient) {
         return {
