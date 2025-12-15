@@ -13,6 +13,7 @@
 - **TDengine 工具** (`server-tdengine.js`) - 对 TDengine 时序数据库执行 SQL 查询
 - **MongoDB 工具** (`server-mongodb.js`) - 查询、插入、更新、删除 MongoDB 集合中的文档
 - **文件工具** (`server-read-files.js`) - 从文件系统读取文件
+- **MQTT 工具** (`server-mqtt.js`) - 订阅和发布 MQTT 消息
 
 ## 前置要求
 
@@ -30,6 +31,7 @@ npm install
 - `@modelcontextprotocol/sdk` - 用于构建服务器的 MCP SDK
 - `mysql2` - MySQL 数据库驱动
 - `mongodb` - MongoDB 数据库驱动
+- `mqtt` - MQTT 客户端库
 - `zod` - 模式验证
 - `fs` - 文件系统操作（Node.js 内置模块）
 
@@ -153,6 +155,99 @@ node server-read-files.js
 - `readFile` - 从文件系统读取文件内容
   - 参数：`path` (string) - 要读取的文件路径
 
+### 6. MQTT 工具服务器 (`server-mqtt.js`)
+
+用于订阅和发布 MQTT 消息的 MCP 服务器。
+
+**使用方法：**
+```bash
+node server-mqtt.js --host alpha --topics "/events/#"
+```
+
+**命令行参数：**
+- `--host` (必需) - MQTT Broker 主机地址
+- `--port` (可选) - MQTT Broker 端口，默认根据 TLS 设置自动选择（8883 for TLS, 1883 for non-TLS）
+- `--topics` (可选) - 启动时订阅的主题，支持多个主题（用逗号分隔）或多次使用 `--topics`。如果不提供，可以通过 `mqtt_subscribe` 工具动态订阅
+- `--username` (可选) - MQTT 用户名
+- `--password` (可选) - MQTT 密码
+- `--client-id` (可选) - MQTT 客户端 ID，默认自动生成
+- `--no-tls` (可选) - 禁用 TLS/SSL，使用未加密连接
+- `--ca-cert` (可选) - CA 证书文件路径（用于 TLS）
+- `--client-cert` (可选) - 客户端证书文件路径（用于双向 TLS）
+- `--client-key` (可选) - 客户端密钥文件路径（用于双向 TLS）
+
+**使用示例：**
+```bash
+# 基本订阅（启动时订阅，默认使用 TLS，端口 8883）
+node server-mqtt.js --host alpha --topics "/events/#"
+
+# 使用 TLS 并指定端口
+node server-mqtt.js --host alpha --port 8883 --topics "/events/#"
+
+# 禁用 TLS，使用未加密连接（端口 1883）
+node server-mqtt.js --host alpha --no-tls --topics "/events/#"
+
+# 订阅多个主题（启动时订阅）
+node server-mqtt.js --host alpha --topics "/events/#" --topics "/sensors/+/temperature"
+
+# 不订阅任何主题，完全通过工具动态订阅
+node server-mqtt.js --host alpha
+
+# 带认证的订阅（TLS）
+node server-mqtt.js --host alpha --port 8883 --topics "/events/#" --username user --password pass
+
+# 带认证的订阅（非 TLS）
+node server-mqtt.js --host alpha --port 1883 --no-tls --topics "/events/#" --username user --password pass
+
+# 使用自定义证书（双向 TLS）
+node server-mqtt.js --host alpha --ca-cert ca.crt --client-cert client.crt --client-key client.key --topics "/events/#"
+
+# 指定客户端 ID
+node server-mqtt.js --host alpha --topics "/events/#" --client-id my-client-id
+```
+
+**TLS/SSL 配置说明：**
+- ✅ 默认启用 TLS/SSL（端口 8883）
+- ✅ 默认禁用证书验证（`rejectUnauthorized: false`），适用于自签名证书
+- ✅ 支持自定义 CA 证书、客户端证书和密钥
+- ✅ 使用 `--no-tls` 选项可禁用 TLS，使用未加密连接（端口 1883）
+
+**动态订阅功能：**
+- ✅ 支持在运行时通过 `mqtt_subscribe` 工具动态订阅新主题
+- ✅ 支持通过 `mqtt_unsubscribe` 工具动态取消订阅
+- ✅ 支持批量订阅多个主题
+- ✅ 启动时可以不提供 `--topics` 参数，完全通过工具动态管理订阅
+
+**可用工具：**
+- `mqtt_status` - 获取 MQTT 连接状态和订阅信息
+  - 参数：无
+- `mqtt_get_messages` - 获取接收到的消息
+  - 参数：
+    - `limit` (number, 可选) - 返回消息数量限制，默认 10
+    - `topic` (string, 可选) - 按主题过滤消息，支持通配符
+- `mqtt_publish` - 发布消息到指定主题
+  - 参数：
+    - `topic` (string) - 目标主题
+    - `message` (string) - 消息内容
+    - `qos` (number, 可选) - 服务质量等级 (0-2)，默认 0
+    - `retain` (boolean, 可选) - 是否保留消息，默认 false
+- `mqtt_subscribe` - 动态订阅新主题（运行时订阅）
+  - 参数：
+    - `topic` (string) - 要订阅的主题
+    - `qos` (number, 可选) - 服务质量等级 (0-2)，默认 0
+  - 说明：可以在运行时动态订阅新主题，无需重启服务器
+- `mqtt_subscribe_batch` - 批量订阅多个主题
+  - 参数：
+    - `topics` (array) - 要订阅的主题数组
+    - `qos` (number, 可选) - 服务质量等级 (0-2)，默认 0
+  - 说明：一次性订阅多个主题，返回每个主题的订阅结果
+- `mqtt_unsubscribe` - 动态取消订阅主题（运行时取消订阅）
+  - 参数：
+    - `topic` (string) - 要取消订阅的主题
+  - 说明：可以在运行时动态取消订阅，无需重启服务器
+- `mqtt_clear_messages` - 清空消息存储
+  - 参数：无
+
 ## MCP 客户端配置
 
 要在 Cursor 中使用这些服务器，请将它们添加到 MCP 配置文件（通常是 `~/.cursor/mcp.json`）：
@@ -181,6 +276,16 @@ node server-read-files.js
     "file-tools": {
       "command": "node",
       "args": ["D:/projects/mcp-demo-server/server-read-files.js"]
+    },
+    "mqtt-tools": {
+      "command": "node",
+      "args": [
+        "D:/projects/mcp-demo-server/server-mqtt.js",
+        "--host",
+        "alpha",
+        "--topics",
+        "/events/#"
+      ]
     }
   }
 }
@@ -197,6 +302,7 @@ mcp-demo-server/
 ├── server-tdengine.js     # TDengine 数据库工具
 ├── server-mongodb.js      # MongoDB 数据库工具
 ├── server-read-files.js   # 文件读取工具
+├── server-mqtt.js         # MQTT 消息订阅和发布工具
 ├── package.json           # 项目依赖
 ├── README.md              # 英文文档（English）
 └── README_zh.md           # 中文文档（Chinese）
@@ -208,6 +314,7 @@ mcp-demo-server/
 - ✅ 数据库查询支持（MySQL、TDengine、MongoDB）
 - ✅ MongoDB CRUD 操作（创建、读取、更新、删除）
 - ✅ 文件系统操作
+- ✅ MQTT 消息订阅和发布
 - ✅ 使用 Zod 进行模式验证
 - ✅ 错误处理和日志记录
 - ✅ 用于 MCP 通信的 STDIO 传输
