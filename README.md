@@ -4,6 +4,10 @@ A collection of Model Context Protocol (MCP) server implementations demonstratin
 
 > [中文文档](README_zh.md) | [English Documentation](README.md)
 
+## A Note from the Author · MomentaryChen
+
+These are practical, easy-to-use MCP connection tools designed to help you quickly integrate with databases, file systems, and messaging middleware for data processing and integration. Each tool comes with rich examples and straightforward interfaces, making them suitable for development, testing, or learning. If you find them helpful, please give a like—your support keeps me improving!
+
 ## Overview
 
 This project contains multiple MCP server implementations that can be used with Cursor or other MCP-compatible clients:
