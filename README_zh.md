@@ -15,6 +15,7 @@
 - **文件工具** (`server-read-files.js`) - 从文件系统读取文件
 - **Axios 工具** (`server-axios.js`) - 通过 HTTP API 执行 GET/POST/PUT/DELETE 请求
 - **MQTT 工具** (`server-mqtt.js`) - 订阅和发布 MQTT 消息
+- **Kafka 工具** (`server-kafka.js`) - 消费与发布 Kafka 消息
 
 ## 前置要求
 
@@ -279,6 +280,79 @@ node server-mqtt.js --host alpha --topics "/events/#" --client-id my-client-id
 - `mqtt_clear_messages` - 清空消息存储
   - 参数：无
 
+### 8. Kafka 工具服务器 (`server-kafka.js`)
+
+用于消费和发布 Kafka 消息的 MCP 服务器。
+
+**使用方法：**
+```bash
+node server-kafka.js --brokers localhost:9092 --topics demo-topic --group-id cursor-group --from-beginning
+```
+
+**命令行参数：**
+- `--brokers` (必需) - 以逗号分隔的 broker 列表，例如 `localhost:9092,localhost:9093`；如果未写端口，默认使用 9092
+- `--topics` (可选) - 启动时订阅的 topic，支持多个（逗号分隔或多次使用 `--topics`）。也可运行时用 `kafka_subscribe` 动态订阅
+- `--group-id` (可选) - 消费者组 ID，默认自动生成
+- `--client-id` (可选) - 客户端 ID，默认自动生成
+- `--from-beginning` (可选) - 订阅时从最旧偏移读取，默认 false
+- `--username` / `--password` (可选) - SASL/PLAIN 用户名与密码
+- `--ssl` (可选) - 启用 SSL/TLS 连接
+
+**使用示例：**
+```bash
+# 基本订阅，从最新偏移开始
+node server-kafka.js --brokers localhost:9092 --topics demo-topic
+
+# 从最旧偏移开始读取
+node server-kafka.js --brokers localhost:9092 --topics demo-topic --from-beginning
+
+# 订阅多个主题（启动时订阅）
+node server-kafka.js --brokers localhost:9092 --topics topic1,topic2 --topics topic3
+
+# 多个 broker（高可用）
+node server-kafka.js --brokers kafka1:9092,kafka2:9092,kafka3:9092 --topics demo-topic
+
+# 不指定主题，完全通过工具动态订阅
+node server-kafka.js --brokers localhost:9092
+
+# SASL/PLAIN + TLS
+node server-kafka.js --brokers kafka1:9093 --topics secure-topic --ssl --username user --password ****
+
+# 自定义消费者组和客户端 ID
+node server-kafka.js --brokers localhost:9092 --topics demo-topic --group-id my-group --client-id my-client
+```
+
+**动态订阅功能：**
+- ✅ 支持在运行时通过 `kafka_subscribe` 工具动态订阅新主题
+- ✅ 支持为每个主题单独设置是否从最早偏移开始读取
+- ✅ 启动时可以不提供 `--topics` 参数，完全通过工具动态管理订阅
+- ✅ 消息存储在内存中，最多保留 10000 条消息
+
+**可用工具：**
+- `kafka_status` - 查询 producer/consumer 连接状态、订阅 topic 等信息
+  - 参数：无
+  - 返回：连接状态、broker 列表、订阅的主题、消费者组 ID、客户端 ID、SSL 配置、消息数量等
+- `kafka_publish` - 发布消息到指定 topic
+  - 参数：
+    - `topic` (string) - 目标 topic
+    - `message` (string) - 消息内容
+    - `key` (string, 可选) - 消息 key
+    - `headers` (record, 可选) - Kafka headers（字符串键值）
+    - `partition` (number, 可选) - 目标分区
+- `kafka_subscribe` - 运行时订阅新 topic（动态订阅）
+  - 参数：
+    - `topic` (string) - 要订阅的 topic
+    - `fromBeginning` (boolean, 可选) - 是否从最旧偏移开始，默认使用启动时的 `--from-beginning` 设置
+  - 说明：可以在运行时动态订阅新主题，无需重启服务器。如果消费者正在运行，会自动停止并重新订阅所有主题（包括新主题）
+- `kafka_get_messages` - 获取最近的消费消息（内存缓存，最多 10000 条）
+  - 参数：
+    - `limit` (number, 可选) - 返回数量，默认 10
+    - `topic` (string, 可选) - 按 topic 过滤
+    - `partition` (number, 可选) - 按分区过滤
+  - 返回：消息数组，包含 topic、partition、offset、timestamp、key、value、headers 等信息
+- `kafka_clear_messages` - 清空消息缓存
+  - 参数：无
+
 ## MCP 客户端配置
 
 要在 Cursor 中使用这些服务器，请将它们添加到 MCP 配置文件（通常是 `~/.cursor/mcp.json`）：
@@ -321,6 +395,16 @@ node server-mqtt.js --host alpha --topics "/events/#" --client-id my-client-id
         "--topics",
         "/events/#"
       ]
+    },
+    "kafka-tools": {
+      "command": "node",
+      "args": [
+        "D:/projects/mcp-demo-server/server-kafka.js",
+        "--brokers",
+        "localhost:9092",
+        "--topics",
+        "demo-topic"
+      ]
     }
   }
 }
@@ -339,6 +423,7 @@ mcp-demo-server/
 ├── server-read-files.js   # 文件读取工具
 ├── server-axios.js        # HTTP API 请求工具
 ├── server-mqtt.js         # MQTT 消息订阅和发布工具
+├── server-kafka.js        # Kafka 消息消费与发布工具
 ├── package.json           # 项目依赖
 ├── README.md              # 英文文档（English）
 └── README_zh.md           # 中文文档（Chinese）
@@ -351,6 +436,7 @@ mcp-demo-server/
 - ✅ MongoDB CRUD 操作（创建、读取、更新、删除）
 - ✅ 通过 Axios 支持 HTTP API 请求（GET、POST、PUT、DELETE）
 - ✅ MQTT 消息订阅、发布与动态主题管理
+- ✅ Kafka 消息消费与发布，支持运行时订阅
 - ✅ 支持 MQTT TLS/SSL 连接
 - ✅ 文件系统操作
 - ✅ 使用 Zod 进行模式验证
