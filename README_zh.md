@@ -13,6 +13,7 @@
 - **TDengine 工具** (`server-tdengine.js`) - 对 TDengine 时序数据库执行 SQL 查询
 - **MongoDB 工具** (`server-mongodb.js`) - 查询、插入、更新、删除 MongoDB 集合中的文档
 - **文件工具** (`server-read-files.js`) - 从文件系统读取文件
+- **Axios 工具** (`server-axios.js`) - 通过 HTTP API 执行 GET/POST/PUT/DELETE 请求
 - **MQTT 工具** (`server-mqtt.js`) - 订阅和发布 MQTT 消息
 
 ## 前置要求
@@ -31,6 +32,7 @@ npm install
 - `@modelcontextprotocol/sdk` - 用于构建服务器的 MCP SDK
 - `mysql2` - MySQL 数据库驱动
 - `mongodb` - MongoDB 数据库驱动
+- `axios` - HTTP 客户端
 - `mqtt` - MQTT 客户端库
 - `zod` - 模式验证
 - `fs` - 文件系统操作（Node.js 内置模块）
@@ -61,7 +63,7 @@ node server.js
 const db = await mysql.createPool({
   host: "127.0.0.1",
   user: "root",
-  password: "your_password",
+  password: "****",
   database: "your_database"
 });
 ```
@@ -88,7 +90,7 @@ const TDENGINE_CONFIG = {
   host: "127.0.0.1",
   port: 6041, // REST API 默认端口
   user: "root",
-  password: "taosdata"
+  password: "****"
 };
 ```
 
@@ -110,7 +112,7 @@ node server-tdengine.js
 编辑 `server-mongodb.js` 中的 MongoDB 连接设置：
 
 ```javascript
-const uri = "mongodb://username:password@127.0.0.1:27017";
+const uri = "mongodb://username:****@127.0.0.1:27017";
 const client = new MongoClient(uri);
 await client.connect();
 const db = client.db("your_database_name");
@@ -155,7 +157,36 @@ node server-read-files.js
 - `readFile` - 从文件系统读取文件内容
   - 参数：`path` (string) - 要读取的文件路径
 
-### 6. MQTT 工具服务器 (`server-mqtt.js`)
+### 6. Axios 工具服务器 (`server-axios.js`)
+
+用于通过 HTTP API 发送请求的 MCP 服务器。
+
+**使用方法：**
+```bash
+node server-axios.js
+```
+
+**可用工具：**
+- `call_api_get` - 发送 HTTP GET 请求
+  - 参数：
+    - `url` (string) - API 地址
+    - `headers` (object, 可选) - HTTP 头
+- `call_api_post` - 发送 HTTP POST 请求
+  - 参数：
+    - `url` (string) - API 地址
+    - `body` (string) - 请求体（若可能会解析为 JSON）
+    - `headers` (string) - HTTP 头（JSON 字符串）
+- `call_api_put` - 发送 HTTP PUT 请求
+  - 参数：
+    - `url` (string) - API 地址
+    - `body` (any, 可选) - 请求体
+    - `headers` (object, 可选) - HTTP 头
+- `call_api_delete` - 发送 HTTP DELETE 请求
+  - 参数：
+    - `url` (string) - API 地址
+    - `headers` (object, 可选) - HTTP 头
+
+### 7. MQTT 工具服务器 (`server-mqtt.js`)
 
 用于订阅和发布 MQTT 消息的 MCP 服务器。
 
@@ -194,10 +225,10 @@ node server-mqtt.js --host alpha --topics "/events/#" --topics "/sensors/+/tempe
 node server-mqtt.js --host alpha
 
 # 带认证的订阅（TLS）
-node server-mqtt.js --host alpha --port 8883 --topics "/events/#" --username user --password pass
+node server-mqtt.js --host alpha --port 8883 --topics "/events/#" --username user --password ****
 
 # 带认证的订阅（非 TLS）
-node server-mqtt.js --host alpha --port 1883 --no-tls --topics "/events/#" --username user --password pass
+node server-mqtt.js --host alpha --port 1883 --no-tls --topics "/events/#" --username user --password ****
 
 # 使用自定义证书（双向 TLS）
 node server-mqtt.js --host alpha --ca-cert ca.crt --client-cert client.crt --client-key client.key --topics "/events/#"
@@ -277,6 +308,10 @@ node server-mqtt.js --host alpha --topics "/events/#" --client-id my-client-id
       "command": "node",
       "args": ["D:/projects/mcp-demo-server/server-read-files.js"]
     },
+    "axios-tools": {
+      "command": "node",
+      "args": ["D:/projects/mcp-demo-server/server-axios.js"]
+    },
     "mqtt-tools": {
       "command": "node",
       "args": [
@@ -302,6 +337,7 @@ mcp-demo-server/
 ├── server-tdengine.js     # TDengine 数据库工具
 ├── server-mongodb.js      # MongoDB 数据库工具
 ├── server-read-files.js   # 文件读取工具
+├── server-axios.js        # HTTP API 请求工具
 ├── server-mqtt.js         # MQTT 消息订阅和发布工具
 ├── package.json           # 项目依赖
 ├── README.md              # 英文文档（English）
@@ -313,8 +349,10 @@ mcp-demo-server/
 - ✅ 多个 MCP 服务器实现
 - ✅ 数据库查询支持（MySQL、TDengine、MongoDB）
 - ✅ MongoDB CRUD 操作（创建、读取、更新、删除）
+- ✅ 通过 Axios 支持 HTTP API 请求（GET、POST、PUT、DELETE）
+- ✅ MQTT 消息订阅、发布与动态主题管理
+- ✅ 支持 MQTT TLS/SSL 连接
 - ✅ 文件系统操作
-- ✅ MQTT 消息订阅和发布
 - ✅ 使用 Zod 进行模式验证
 - ✅ 错误处理和日志记录
 - ✅ 用于 MCP 通信的 STDIO 传输
