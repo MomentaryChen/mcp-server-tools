@@ -1,13 +1,24 @@
+import dotenv from "dotenv";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-// 🏁 TDengine REST API 連線設定
+// 透過 .env 載入變數（可透過 ENV_FILE 指定路徑，預設為專案根目錄的 .env）
+dotenv.config({ path: process.env.ENV_FILE || ".env" });
+
+const {
+  TDENGINE_HOST = "127.0.0.1",
+  TDENGINE_PORT = "6041",
+  TDENGINE_USER = "root",
+  TDENGINE_PASSWORD = "taosdata"
+} = process.env;
+
+const tdenginePort = parseInt(TDENGINE_PORT, 10);
 const TDENGINE_CONFIG = {
-  host: "127.0.0.1",
-  port: 6041, // REST API 預設端口
-  user: "root",
-  password: "taosdata"
+  host: TDENGINE_HOST,
+  port: tdenginePort,
+  user: TDENGINE_USER,
+  password: TDENGINE_PASSWORD
 };
 
 // TDengine REST API 查詢函數
@@ -44,6 +55,8 @@ async function queryTDengine(sql) {
   const result = await response.json();
   return result;
 }
+
+console.error(`✅ MCP TDengine Server 已啟動（${TDENGINE_CONFIG.host}:${TDENGINE_CONFIG.port}）`);
 
 const server = new McpServer({ name: "tdengine-tools", version: "1.0.0" });
 
