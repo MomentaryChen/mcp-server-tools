@@ -5,11 +5,12 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.23.0",
     "axios": "^1.13.2",
-    "kafkajs": "^2.2.4",
     "fs": "^0.0.1-security",
+    "kafkajs": "^2.2.4",
     "mongodb": "^3.6.6",
     "mqtt": "^5.10.2",
     "mysql2": "^3.15.3",
+    "tunnel-ssh": "^5.2.0",
     "zod": "^4.1.13"
   }
 }
