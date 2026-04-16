@@ -17,7 +17,7 @@ server.tool("check_health",
   })
 );
 
-// 用 stdin/stdout transport
+// Use stdin/stdout transport.
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 const transport = new StdioServerTransport();
 await server.connect(transport);

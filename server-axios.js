@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { apiRequest } from "./axios.js";
+import { apiRequest } from "./scripts/axios.js";
 
 const server = new McpServer({
     name: "axios-tools",
@@ -35,28 +35,28 @@ server.tool(
     },
     async ({ url, body, headers }) => {
 
-        // 將 body 當作 string 處理，然後轉換為對象
+        // Treat body as string first, then convert to an object.
         let parsedBody = body || {};
         
-        // 如果 body 是字符串，嘗試解析為 JSON
+        // If body is a string, try parsing it as JSON.
         if (typeof body === 'string') {
             try {
-                // 移除可能的空白字符
+                // Trim possible whitespace.
                 const trimmedBody = body.trim();
-                // 如果是空字符串，設為空對象
+                // Treat empty string as empty object.
                 if (trimmedBody === '' || trimmedBody === '{}') {
                     parsedBody = {};
                 } else {
-                    // 嘗試解析 JSON
+                    // Attempt JSON parsing.
                     parsedBody = JSON.parse(trimmedBody);
                 }
             } catch (e) {
-                // 如果解析失敗，嘗試作為普通字符串處理
+                // Fall back to plain string payload if parsing fails.
                 parsedBody = { data: body };
             }
         }
         
-        // 如果 body 是 undefined 或 null，設為空對象
+        // Treat undefined/null body as empty object.
         if (body === undefined || body === null) {
             parsedBody = {};
         }
@@ -97,10 +97,10 @@ server.tool(
         headers: z.any().optional()
     },
     async ({ url, body = {}, headers = {} }) => {
-        // 將 body 當作 string 處理，然後轉換為對象
+        // Treat body as string first, then convert to an object.
         let parsedBody = body;
         
-        // 如果 body 是字符串，嘗試解析為 JSON
+        // If body is a string, try parsing it as JSON.
         if (typeof body === 'string') {
             try {
                 const trimmedBody = body.trim();

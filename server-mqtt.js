@@ -4,17 +4,17 @@ import { z } from "zod";
 import mqtt from "mqtt";
 import fs from "fs";
 
-// 解析命令行参数
+// Parse command-line arguments.
 function parseArgs() {
   const args = process.argv.slice(2);
   const config = {
     host: null,
-    port: null, // 默认根据 TLS 设置自动选择
+    port: null, // Auto-select based on TLS setting by default.
     topics: [],
     username: null,
     password: null,
     clientId: `mcp-mqtt-${Math.random().toString(16).substr(2, 8)}`,
-    useTls: true, // 默认启用 TLS
+    useTls: true, // Enable TLS by default.
     caCert: null,
     clientCert: null,
     clientKey: null
@@ -30,7 +30,7 @@ function parseArgs() {
         config.port = parseInt(args[++i], 10);
         break;
       case "--topics":
-        // 支持多个主题，用逗号分隔或多次使用 --topics
+        // Support multiple topics via comma-separated value or repeated --topics.
         const topics = args[++i].split(",").map(t => t.trim());
         config.topics.push(...topics);
         break;
@@ -58,7 +58,7 @@ function parseArgs() {
     }
   }
 
-  // 如果没有指定端口，根据 TLS 设置自动选择
+  // Auto-select port based on TLS setting if no port is provided.
   if (config.port === null) {
     config.port = config.useTls ? 8883 : 1883;
   }
@@ -68,15 +68,15 @@ function parseArgs() {
 
 const config = parseArgs();
 
-// 验证必需参数
+// Validate required arguments.
 if (!config.host) {
   console.error("错误: 必须提供 --host 参数");
   process.exit(1);
 }
 
-// topics 参数现在是可选的，可以通过 mqtt_subscribe 工具动态订阅
+// topics is optional and can be subscribed dynamically via mqtt_subscribe.
 
-// MQTT 连接选项
+// MQTT connection options.
 const mqttOptions = {
   clientId: config.clientId,
   reconnectPeriod: 1000,
@@ -84,7 +84,7 @@ const mqttOptions = {
   keepalive: 60
 };
 
-// 注入 username 和 password（如果提供）
+// Inject username and password if provided.
 if (config.username) {
   mqttOptions.username = config.username;
 }
@@ -93,11 +93,11 @@ if (config.password) {
   mqttOptions.password = config.password;
 }
 
-// TLS/SSL 配置
+// TLS/SSL configuration.
 if (config.useTls) {
-  mqttOptions.rejectUnauthorized = false; // 禁用证书验证（类似 Python 的 cert_reqs=ssl.CERT_NONE）
+  mqttOptions.rejectUnauthorized = false; // Disable certificate verification (like Python cert_reqs=ssl.CERT_NONE).
   
-  // 如果提供了证书文件，读取它们
+  // Load certificate files if provided.
   if (config.caCert) {
     try {
       mqttOptions.ca = fs.readFileSync(config.caCert);
@@ -123,20 +123,20 @@ if (config.useTls) {
   }
 }
 
-// 存储接收到的消息
+// Store received messages.
 const messageStore = [];
-const maxMessages = 10000; // 最多保存 10000 条消息，减小溢出丢失风险
+const maxMessages = 10000; // Keep up to 10000 messages to reduce overflow loss risk.
 
-// 建立 MCP Server
+// Create MCP server.
 const server = new McpServer({ name: "mqtt-tools", version: "1.0.0" });
 
-// 连接 MQTT Broker
+// Connect to MQTT broker.
 let mqttClient = null;
 let isConnected = false;
 
 async function connectMQTT() {
   return new Promise((resolve, reject) => {
-    // 根据 TLS 设置选择协议
+    // Select protocol based on TLS setting.
     const protocol = config.useTls ? "mqtts" : "mqtt";
     const brokerUrl = `${protocol}://${config.host}:${config.port}`;
     const tlsStatus = config.useTls ? "TLS" : "Unencrypted";
@@ -149,7 +149,7 @@ async function connectMQTT() {
       console.error("🔓 使用未加密连接");
     }
     
-    // 显示认证信息（如果提供）
+    // Show authentication details if provided.
     if (config.username) {
       console.error(`🔐 认证用户名: ${config.username}`);
     }
@@ -163,7 +163,7 @@ async function connectMQTT() {
       isConnected = true;
       console.error(`✅ 已连接到 MQTT Broker: ${brokerUrl}`);
       
-      // 订阅启动时指定的主题（如果有）
+      // Subscribe to startup topics if any were provided.
       if (config.topics.length > 0) {
         config.topics.forEach(topic => {
           mqttClient.subscribe(topic, { qos: 1 }, (err) => {
@@ -196,7 +196,7 @@ async function connectMQTT() {
         retain: packet.retain
       };
       
-      // 保存消息（限制数量）
+      // Store messages with bounded history.
       messageStore.push(messageData);
       if (messageStore.length > maxMessages) {
         messageStore.shift();
@@ -221,7 +221,7 @@ async function connectMQTT() {
   });
 }
 
-// 🛠 工具 1：获取连接状态
+// Tool 1: Get connection status.
 server.tool(
   "mqtt_status",
   {},
@@ -249,7 +249,7 @@ server.tool(
   }
 );
 
-// 🛠 工具 2：获取最新消息
+// Tool 2: Get latest messages.
 server.tool(
   "mqtt_get_messages",
   {
@@ -260,17 +260,17 @@ server.tool(
     try {
       let messages = [...messageStore];
       
-      // 如果指定了主题，进行过滤
+      // Filter by topic if provided.
       if (topic) {
         messages = messages.filter(msg => {
-          // 支持通配符匹配
+          // Support wildcard matching.
           const pattern = topic.replace(/\+/g, "[^/]+").replace(/#/g, ".*");
           const regex = new RegExp(`^${pattern}$`);
           return regex.test(msg.topic);
         });
       }
       
-      // 限制返回数量
+      // Limit number of returned messages.
       messages = messages.slice(-limit);
       
       return {
@@ -288,7 +288,7 @@ server.tool(
   }
 );
 
-// 🛠 工具 3：发布消息
+// Tool 3: Publish message.
 server.tool(
   "mqtt_publish",
   {
@@ -332,7 +332,7 @@ server.tool(
   }
 );
 
-// 🛠 工具 4：订阅新主题（支持动态订阅）
+// Tool 4: Subscribe to a new topic (supports dynamic subscription).
 server.tool(
   "mqtt_subscribe",
   {
@@ -348,7 +348,7 @@ server.tool(
         };
       }
 
-      // 检查是否已经订阅
+      // Check whether already subscribed.
       if (config.topics.includes(topic)) {
         return {
           content: [{
@@ -366,7 +366,7 @@ server.tool(
               isError: true
             });
           } else {
-            // 添加到订阅列表
+            // Add to subscribed topic list.
             config.topics.push(topic);
             console.error(`✅ 动态订阅主题: ${topic} (QoS: ${qos})`);
             resolve({
@@ -387,7 +387,7 @@ server.tool(
   }
 );
 
-// 🛠 工具 5：取消订阅（支持动态取消订阅）
+// Tool 5: Unsubscribe (supports dynamic unsubscription).
 server.tool(
   "mqtt_unsubscribe",
   {
@@ -402,7 +402,7 @@ server.tool(
         };
       }
 
-      // 检查是否已订阅
+      // Check whether currently subscribed.
       if (!config.topics.includes(topic)) {
         return {
           content: [{
@@ -443,7 +443,7 @@ server.tool(
   }
 );
 
-// 🛠 工具 6：清空消息存储
+// Tool 6: Clear stored messages.
 server.tool(
   "mqtt_clear_messages",
   {},
@@ -466,7 +466,7 @@ server.tool(
   }
 );
 
-// 🛠 工具 7：批量订阅多个主题
+// Tool 7: Batch subscribe multiple topics.
 server.tool(
   "mqtt_subscribe_batch",
   {
@@ -525,7 +525,7 @@ server.tool(
   }
 );
 
-// 连接到 MQTT Broker
+// Connect to MQTT broker.
 try {
   await connectMQTT();
 } catch (err) {
@@ -533,7 +533,7 @@ try {
   process.exit(1);
 }
 
-// 使用 stdin/stdout 连接 Cursor
+// Connect to Cursor via stdin/stdout.
 const transport = new StdioServerTransport();
 await server.connect(transport);
 

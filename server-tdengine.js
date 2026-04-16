@@ -2,9 +2,9 @@ import dotenv from "dotenv";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { createSshForwardTunnel, getSshConfigFromEnv, useSshTunnel } from "./ssh-tunnel.js";
+import { createSshForwardTunnel, getSshConfigFromEnv, useSshTunnel } from "./scripts/ssh-tunnel.js";
 
-// 透過 .env 載入變數（可透過 ENV_FILE 指定路徑，預設為專案根目錄的 .env）
+// Load environment variables from .env (can be overridden with ENV_FILE).
 dotenv.config({ path: process.env.ENV_FILE || ".env" });
 
 const {
@@ -120,23 +120,23 @@ function buildWhereClause(where) {
   return clauses.join(" AND ");
 }
 
-// TDengine REST API 查詢函數
+// TDengine REST API query function.
 async function queryTDengine(sql) {
   const url = `http://${TDENGINE_CONFIG.host}:${TDENGINE_CONFIG.port}/rest/sql`;
   const auth = Buffer.from(`${TDENGINE_CONFIG.user}:${TDENGINE_CONFIG.password}`).toString('base64');
   
-  // 確保 sql 是字符串，處理可能的對象傳入情況
+  // Ensure sql is a string and handle potential object input.
   let sqlString;
   if (typeof sql === 'string') {
     sqlString = sql;
   } else if (sql && typeof sql === 'object' && sql.sql) {
-    // 如果傳入的是對象，嘗試提取 sql 屬性
+    // If input is an object, try extracting the sql property.
     sqlString = sql.sql;
   } else {
     sqlString = String(sql);
   }
   
-  // TDengine REST API 需要直接發送 SQL 字符串，Content-Type 為 text/plain
+  // TDengine REST API expects a raw SQL string with text/plain content type.
   const response = await fetch(url, {
     method: 'POST',
     headers: {
@@ -157,18 +157,18 @@ async function queryTDengine(sql) {
 
 const server = new McpServer({ name: "tdengine-tools", version: "1.0.0" });
 
-// 🛠 Tool：SQL 查詢
+// Tool: SQL query.
 server.tool(
   "query_tdengine",
   { sql: z.string() },
   async (params) => {
     try {
       assertOperationAllowed("query_tdengine", operationAccess.query);
-      // 調試：記錄接收到的參數
+      // Debug: log the received params.
       console.error('Received params:', JSON.stringify(params));
       console.error('Params type:', typeof params);
       
-      // 提取 sql 參數
+      // Extract the sql argument.
       const sql = params?.sql || params;
       console.error('Extracted sql:', sql);
       console.error('SQL type:', typeof sql);

@@ -24,7 +24,7 @@ function parseArgs() {
           .split(",")
           .map((b) => b.trim())
           .filter(Boolean)
-          .map((b) => (b.includes(":") ? b : `${b}:9092`)); // 若未指定端口，補上 Kafka 預設 9092
+          .map((b) => (b.includes(":") ? b : `${b}:9092`)); // If no port is provided, append Kafka default 9092.
         break;
       case "--topics":
         config.topics.push(...args[++i].split(",").map((t) => t.trim()).filter(Boolean));
@@ -228,23 +228,23 @@ server.tool(
         return { content: [{ type: "text", text: `已經訂閱 topic=${topic}` }] };
       }
 
-      // 如果消費者正在運行，需要先停止再重新訂閱所有 topics
+      // If consumer is running, stop it before re-subscribing all topics.
       const wasRunning = consumerRunning;
       if (wasRunning) {
         await stopConsumerLoop();
       }
 
-      // 添加新的 topic 到配置
+      // Add the new topic to config.
       config.topics.push(topic);
 
-      // 重新訂閱所有 topics（包括新的）
+      // Re-subscribe all topics (including the new one).
       await consumer.subscribe({
         topics: config.topics,
         fromBeginning
       });
       console.error(`✅ 已訂閱 Kafka topic=${topic} fromBeginning=${fromBeginning}`);
 
-      // 重新啟動消費者
+      // Restart consumer loop.
       await startConsumerLoop();
 
       return {

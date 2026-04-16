@@ -37,11 +37,11 @@ function parseSshJumps(value, envKeyName = "SSH_JUMPS") {
   try {
     const parsed = JSON.parse(value);
     if (!Array.isArray(parsed)) {
-      throw new Error(`${envKeyName} 必須是 JSON 陣列`);
+      throw new Error(`${envKeyName} must be a JSON array`);
     }
     return parsed.map((hop) => normalizeSshHopConfig(hop));
   } catch (error) {
-    throw new Error(`${envKeyName} 格式錯誤：${error.message}`);
+    throw new Error(`${envKeyName} format error: ${error.message}`);
   }
 }
 
@@ -93,7 +93,7 @@ export async function createSshForwardTunnel({ sshConfig, dstAddr, dstPort }) {
   }
 
   console.error(
-    `[ssh-tunnel] 建立多層通道，總跳數: ${validHops.length}，最終目標: ${dstAddr}:${dstPort}`
+    `[ssh-tunnel] Creating multi-hop tunnel, total hops: ${validHops.length}, target: ${dstAddr}:${dstPort}`
   );
 
   let previousLocalPort = null;
@@ -109,7 +109,7 @@ export async function createSshForwardTunnel({ sshConfig, dstAddr, dstPort }) {
         : { host: dstAddr, port: dstPort };
 
     console.error(
-      `[ssh-tunnel] 準備建立第 ${hopNo}/${totalHops} 跳: connect ${connectHost}:${connectPort} as ${hop.user} -> forward ${forwardTarget.host}:${forwardTarget.port}`
+      `[ssh-tunnel] Preparing hop ${hopNo}/${totalHops}: connect ${connectHost}:${connectPort} as ${hop.user} -> forward ${forwardTarget.host}:${forwardTarget.port}`
     );
 
     const tunnelOptions = { autoClose: false, reconnectOnError: false };
@@ -134,18 +134,18 @@ export async function createSshForwardTunnel({ sshConfig, dstAddr, dstPort }) {
       );
     } catch (error) {
       throw new Error(
-        `[ssh-tunnel] 第 ${hopNo}/${totalHops} 跳失敗 (connect ${connectHost}:${connectPort} as ${hop.user} -> forward ${forwardTarget.host}:${forwardTarget.port}): ${error.message}`
+        `[ssh-tunnel] Hop ${hopNo}/${totalHops} failed (connect ${connectHost}:${connectPort} as ${hop.user} -> forward ${forwardTarget.host}:${forwardTarget.port}): ${error.message}`
       );
     }
 
     previousLocalPort = tunnelServer.address().port;
     console.error(
-      `[ssh-tunnel] 第 ${hopNo}/${totalHops} 跳成功，建立本地轉發: 127.0.0.1:${previousLocalPort}`
+      `[ssh-tunnel] Hop ${hopNo}/${totalHops} succeeded, local forward: 127.0.0.1:${previousLocalPort}`
     );
   }
 
   console.error(
-    `[ssh-tunnel] 多層通道建立完成，請使用本地端點: 127.0.0.1:${previousLocalPort}`
+    `[ssh-tunnel] Multi-hop tunnel ready, use local endpoint: 127.0.0.1:${previousLocalPort}`
   );
   return {
     host: "127.0.0.1",

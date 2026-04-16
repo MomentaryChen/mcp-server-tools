@@ -3,13 +3,13 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import fs from "fs/promises";
 
-// 建立 MCP Server
+// Create MCP server.
 const server = new McpServer({ name: "file-tools", version: "1.0.0" });
 
-// Tool：讀檔案
+// Tool: Read file.
 server.tool(
   "readFile",
-  { path: z.string() }, // 接收檔案路徑
+  { path: z.string() }, // Accept file path.
   async ({ path }) => {
     try {
       const content = await fs.readFile(path, "utf-8");
@@ -20,7 +20,7 @@ server.tool(
   }
 );
 
-// 使用 stdin/stdout 連接 Cursor
+// Connect to Cursor via stdin/stdout.
 const transport = new StdioServerTransport();
 await server.connect(transport);
 

@@ -3,9 +3,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import mysql from "mysql2/promise";
-import { createSshForwardTunnel, getSshConfigFromEnv, useSshTunnel } from "./ssh-tunnel.js";
+import { createSshForwardTunnel, getSshConfigFromEnv, useSshTunnel } from "./scripts/ssh-tunnel.js";
 
-// 透過 .env 載入變數（可透過 ENV_FILE 指定路徑，預設為專案根目錄的 .env）
+// Load environment variables from .env (can be overridden with ENV_FILE).
 dotenv.config({ path: process.env.ENV_FILE || ".env" });
 
 const {
@@ -117,11 +117,25 @@ function assertOperationAllowed(operationName, allowed) {
   }
 }
 
+function assertReadOnlyQuery(sql) {
+  const trimmedSql = String(sql || "").trim();
+  if (!trimmedSql) {
+    throw new Error("SQL 不可為空");
+  }
+
+  // Allow only read-only SQL to prevent bypassing write-operation controls via query_mysql.
+  const readOnlyPrefixPattern = /^(SELECT|SHOW|DESCRIBE|DESC|EXPLAIN)\b/i;
+  if (!readOnlyPrefixPattern.test(trimmedSql)) {
+    throw new Error("Operation not allowed: query_mysql only allows read-only SQL");
+  }
+}
+
 server.tool(
   "query_mysql",
   { sql: z.string() },
   async ({ sql }) => {
     assertOperationAllowed("query_mysql", operationAccess.query);
+    assertReadOnlyQuery(sql);
     const [rows] = await db.query(sql);
     return {
       content: [{ type: "text", text: JSON.stringify(rows, null, 2) }]

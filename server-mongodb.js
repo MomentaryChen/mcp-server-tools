@@ -2,12 +2,12 @@ import dotenv from "dotenv";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { createSshForwardTunnel, getSshConfigFromEnv, useSshTunnel } from "./ssh-tunnel.js";
+import { createSshForwardTunnel, getSshConfigFromEnv, useSshTunnel } from "./scripts/ssh-tunnel.js";
 
 import pkg from "mongodb";
 const { MongoClient } = pkg;
 
-// 透過 .env 載入變數（可透過 ENV_FILE 指定路徑，預設為專案根目錄的 .env）
+// Load environment variables from .env (can be overridden with ENV_FILE).
 dotenv.config({ path: process.env.ENV_FILE || ".env" });
 
 const {
@@ -99,7 +99,7 @@ console.error(`✅ MCP MongoDB Server 已啟動（database: ${MONGO_DATABASE}）
 
 const server = new McpServer({ name: "mongo_db-tools", version: "1.0.0" });
 
-// 🛠 工具 1：查詢（可選 database，未填則用 MONGO_DATABASE）
+// Tool 1: Query (optional database, defaults to MONGO_DATABASE).
 server.tool(
   "query_mongo",
   {
@@ -120,7 +120,7 @@ server.tool(
   }
 );
 
-// 🛠 工具 2：插入
+// Tool 2: Insert.
 server.tool(
   "mongo_insert",
   {
@@ -139,7 +139,7 @@ server.tool(
   }
 );
 
-// 🛠 工具 3：更新
+// Tool 3: Update.
 server.tool(
   "mongo_update",
   {
@@ -159,7 +159,7 @@ server.tool(
   }
 );
 
-// 🛠 工具 4：刪除
+// Tool 4: Delete.
 server.tool(
   "mongo_delete",
   {
@@ -178,7 +178,7 @@ server.tool(
   }
 );
 
-// 🛠 工具 5：列出所有集合（可選 database，未填則用 MONGO_DATABASE）
+// Tool 5: List all collections (optional database, defaults to MONGO_DATABASE).
 server.tool(
   "list_mongo_collections",
   { database: z.string().optional() },
