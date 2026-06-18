@@ -2,6 +2,7 @@ node_modules
 package-lock.json
 .env.*
 !.env.example
+_tmp_*
 
 alpha
 beta

@@ -97,6 +97,7 @@ export async function createSshForwardTunnel({ sshConfig, dstAddr, dstPort }) {
   );
 
   let previousLocalPort = null;
+  const tunnelServers = [];
   for (let idx = 0; idx < validHops.length; idx += 1) {
     const hop = validHops[idx];
     const hopNo = idx + 1;
@@ -139,6 +140,7 @@ export async function createSshForwardTunnel({ sshConfig, dstAddr, dstPort }) {
     }
 
     previousLocalPort = tunnelServer.address().port;
+    tunnelServers.push(tunnelServer);
     console.error(
       `[ssh-tunnel] Hop ${hopNo}/${totalHops} succeeded, local forward: 127.0.0.1:${previousLocalPort}`
     );
@@ -149,6 +151,7 @@ export async function createSshForwardTunnel({ sshConfig, dstAddr, dstPort }) {
   );
   return {
     host: "127.0.0.1",
-    port: previousLocalPort
+    port: previousLocalPort,
+    tunnelServers
   };
 }

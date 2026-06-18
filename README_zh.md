@@ -43,10 +43,10 @@ set ENV_FILE=.env.beta && node server-mysql.js
 - 可用 `ENV_FILE` 指定其他路徑
 - 參考模板：`.env.example`
 
-另外支援 MySQL、MongoDB、TDengine 的 SSH 跳板連線：
+另外支援 MySQL、MongoDB、TDengine、Kafka 的 SSH 跳板連線：
 
 - `SSH_JUMPS`（全域跳板）
-- `MYSQL_SSH_JUMPS`、`MONGO_SSH_JUMPS`、`TDENGINE_SSH_JUMPS`（服務專用）
+- `MYSQL_SSH_JUMPS`、`MONGO_SSH_JUMPS`、`TDENGINE_SSH_JUMPS`、`KAFKA_SSH_JUMPS`（服務專用）
 
 ## 工具清單
 
@@ -97,6 +97,40 @@ set ENV_FILE=.env.beta && node server-mysql.js
 - `kafka_get_messages`
 - `kafka_clear_messages`
 
+#### Kafka 環境變數
+
+| 變數 | 說明 |
+|------|------|
+| `KAFKA_BROKERS` | 多個 broker，逗號分隔（建議使用）。未寫 port 時預設 `9092`。 |
+| `KAFKA_HOST` / `KAFKA_PORT` | 單一 bootstrap broker，可替代 `KAFKA_BROKERS`。 |
+| `KAFKA_TOPICS` | 啟動時訂閱的 topic，逗號分隔（例如 `OC_EVENTS,OC_METRICS,OC_UPDATE`）。 |
+| `KAFKA_GROUP_ID` | Consumer group id（選填）。 |
+| `KAFKA_CLIENT_ID` | Kafka client id（選填）。 |
+| `KAFKA_FROM_BEGINNING` | `true` / `false`，訂閱時是否從最早 offset 開始讀。 |
+| `KAFKA_SSL` | 是否啟用 TLS（`true` / `false`）。 |
+| `KAFKA_USERNAME` / `KAFKA_PASSWORD` | SASL/PLAIN 帳密（選填）。 |
+| `KAFKA_SSH_JUMPS` | 連線 broker 的 SSH 跳板鏈（JSON 陣列，由外到內）。 |
+| `KAFKA_BROKER_DNS_SUFFIX` | K8s headless service DNS 後綴，用於 broker 位址重導。 |
+| `KAFKA_BROKER_NAME_PREFIX` | StatefulSet broker 名稱前綴（預設 `kafka`）。 |
+
+#### Kafka + Kubernetes + SSH 說明
+
+當 Kafka 跑在 K8s 內、MCP 跑在本機時：
+
+1. `KAFKA_BROKERS` 請填可從跳板抵達的 Pod IP 或 broker 位址。
+2. 使用 SSH tunnel 時，建議列出 **全部 broker**，且順序對應 `kafka-0` … `kafka-N`。
+3. 設定 `KAFKA_BROKER_DNS_SUFFIX`，將 `advertised.listeners` 回傳的 `kafka-3.kafka-headless-service.default.svc.cluster.local` 等內部 DNS 重導至本機 SSH tunnel。
+4. `kafka_get_messages` 只回傳 **訂閱後收到** 的訊息（記憶體緩存）。若要讀歷史訊息，請用 `kafka_subscribe` 並設 `fromBeginning: true`。
+
+`.env.alpha` 範例：
+
+```env
+KAFKA_BROKERS=10.10.112.155,10.10.112.158,10.10.193.132,10.10.25.210,10.10.52.138
+KAFKA_TOPICS=OC_EVENTS,OC_METRICS,OC_UPDATE
+KAFKA_BROKER_DNS_SUFFIX=kafka-headless-service.default.svc.cluster.local
+KAFKA_SSH_JUMPS=[{"host":"jump-1.example.com","port":22,"user":"ubuntu","privateKeyPath":"D:/keys/jump1"},{"host":"10.2.2.6","port":22,"user":"ubuntu","privateKeyPath":"D:/keys/jump2"}]
+```
+
 ## 啟動範例
 
 ```bash
@@ -107,7 +141,13 @@ node server-mongodb.js
 node server-read-files.js
 node server-axios.js
 node server-mqtt.js --host alpha --topics "/events/#"
-node server-kafka.js --brokers localhost:9092 --topics demo-topic
+node server-kafka.js --brokers localhost:9092 --topics OC_EVENTS,OC_METRICS
+```
+
+使用環境設定檔啟動：
+
+```bash
+set ENV_FILE=.env.alpha && node server-kafka.js
 ```
 
 ## Cursor MCP 設定範例
@@ -129,6 +169,16 @@ node server-kafka.js --brokers localhost:9092 --topics demo-topic
       "command": "node",
       "args": ["D:/projects/mcp-demo-server/server-mongodb.js"],
       "env": { "ENV_FILE": "D:/projects/mcp-demo-server/.env" }
+    },
+    "kafka-alpha-tools": {
+      "command": "node",
+      "args": ["D:/projects/mcp-demo-server/server-kafka.js"],
+      "env": { "ENV_FILE": "D:/projects/mcp-demo-server/.env.alpha" }
+    },
+    "kafka-beta-tools": {
+      "command": "node",
+      "args": ["D:/projects/mcp-demo-server/server-kafka.js"],
+      "env": { "ENV_FILE": "D:/projects/mcp-demo-server/.env.beta" }
     }
   }
 }
