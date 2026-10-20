@@ -1,6 +1,6 @@
 # MCP Demo Server（中文版）
 
-一組模型上下文協議（MCP）伺服器實作，涵蓋資料庫、檔案、HTTP API 與消息中介等常見整合場景。
+一組模型上下文協議（MCP）伺服器實作，涵蓋資料庫、檔案、HTTP API、消息中介與本機 Outlook 信箱等常見整合場景。
 
 > [English Documentation](README.md) | [中文文档](README_zh.md)
 
@@ -16,11 +16,13 @@
 - `server-axios.js` - HTTP GET/POST/PUT/DELETE 工具
 - `server-mqtt.js` - MQTT 訂閱/發布與動態主題管理
 - `server-kafka.js` - Kafka 消費/發布與動態訂閱
+- `server-outlook.js` - 唯讀讀取本機傳統版 Outlook 信箱（Windows）
 
 ## 環境需求
 
 - Node.js `18+`
 - npm
+- 僅 `server-outlook.js`：Windows，並安裝傳統版 Outlook（Microsoft 365 / Office 16）且已設定好信箱帳號
 
 ## 安裝
 
@@ -97,6 +99,54 @@ set ENV_FILE=.env.beta && node server-mysql.js
 - `kafka_get_messages`
 - `kafka_clear_messages`
 
+### `server-outlook.js`（`outlook-tools`）
+- `outlook_status`
+- `outlook_list_folders`
+- `outlook_list_messages`
+- `outlook_search_messages`
+- `outlook_get_message`
+
+唯讀。透過 PowerShell 執行 `scripts/outlook.ps1`，以 COM 連到本機**傳統版** Outlook，因此需要 Windows，且傳統版 Outlook 已設定好信箱帳號；新版 Outlook for Windows 沒有 COM API，無法使用。資料夾路徑以 `/` 分隔（例如 `Projects/Optim 6`），`inbox`、`sent`、`drafts`、`deleted`、`junk` 代表預設資料夾。郵件 id 為 list / search 回傳的 Outlook EntryID。
+
+| 變數 | 說明 |
+|------|------|
+| `OUTLOOK_POWERSHELL` | PowerShell 執行檔（預設 `powershell.exe`，也可用 `pwsh`） |
+| `OUTLOOK_TIMEOUT_MS` | 單次呼叫逾時（預設 `120000`） |
+| `OUTLOOK_MAX_BODY_CHARS` | `outlook_get_message` 預設回傳的內文長度（預設 `20000`） |
+
+#### Outlook 工具參數
+
+| 工具 | 參數 | 回傳 |
+|------|------|------|
+| `outlook_status` | — | Exchange 連線狀態、是否離線、帳號、信箱 |
+| `outlook_list_folders` | `folder?`（起始資料夾，預設整個信箱）、`maxDepth?`（預設 10） | `[{ path, itemCount, unreadCount }]`（僅郵件資料夾） |
+| `outlook_list_messages` | `folder?`（預設 `Inbox`）、`since?`、`until?`、`unreadOnly?`、`limit?`（1–200，預設 20） | 郵件摘要，新到舊 |
+| `outlook_search_messages` | `query?`、`field?`（`all` / `subject` / `from` / `body`）、`folder?`、`includeSubfolders?`、`since?`、`until?`、`unreadOnly?`、`limit?` | 郵件摘要，新到舊 |
+| `outlook_get_message` | `id`（EntryID）、`maxBodyChars?` | 摘要 + `to`、`cc`、`sentOn`、`conversationTopic`、`attachments`（檔名、大小）、`body`、`bodyTruncated` |
+
+郵件摘要欄位：`id`、`folder`、`receivedTime`、`from`、`fromAddress`（SMTP 地址，公司內部 Exchange 寄件者也會轉成 SMTP）、`subject`、`unread`、`hasAttachments`、`categories`、`messageClass`。
+
+- `since` / `until` 接受本機時區的 ISO 日期，例如 `2026-10-01` 或 `2026-10-01T09:00`。
+- `query` 為不分大小寫的子字串比對（Outlook DASL `LIKE`）。
+- `outlook_search_messages` 未指定 `folder` 時搜尋整個信箱（不含刪除的郵件、垃圾郵件）；指定單一資料夾會快很多。
+- 名稱含 `/` 的資料夾會回傳為 `%2F`（例如 `Projects/PON%2FWAN`），可直接用這個路徑查詢。
+
+呼叫範例：
+
+```json
+{ "tool": "outlook_list_messages", "arguments": { "folder": "inbox", "unreadOnly": true, "limit": 10 } }
+{ "tool": "outlook_search_messages", "arguments": { "query": "Health Score", "field": "subject", "since": "2026-10-01" } }
+{ "tool": "outlook_search_messages", "arguments": { "query": "ORC", "folder": "Projects/Optim 6", "includeSubfolders": true } }
+{ "tool": "outlook_get_message", "arguments": { "id": "<list / search 回傳的 EntryID>", "maxBodyChars": 5000 } }
+```
+
+#### Outlook 疑難排解
+
+- **`connectionMode` 為 `400` / `offline` 為 `true`**：傳統版 Outlook 與 Exchange 斷線或處於「離線工作」。仍可從本機快取（OST）讀取，但資料可能不是最新；請關閉「傳送/接收 → 離線工作」。
+- **第一次呼叫較慢**：若 Outlook 尚未開啟，會先在背景啟動。
+- **只找得到近期郵件**：快取模式只下載一段時間（例如 1 年），可在「檔案 → 帳戶設定 →（帳號）→ 下載過去 X 的電子郵件」調整。
+- **只用新版 Outlook**：需安裝 / 開啟傳統版 Outlook 並加入帳號一次；兩個版本可同時開啟。
+
 #### Kafka 環境變數
 
 | 變數 | 說明 |
@@ -142,6 +192,7 @@ node server-read-files.js
 node server-axios.js
 node server-mqtt.js --host alpha --topics "/events/#"
 node server-kafka.js --brokers localhost:9092 --topics OC_EVENTS,OC_METRICS
+node server-outlook.js
 ```
 
 使用環境設定檔啟動：
@@ -170,6 +221,10 @@ set ENV_FILE=.env.alpha && node server-kafka.js
       "args": ["D:/projects/mcp-demo-server/server-mongodb.js"],
       "env": { "ENV_FILE": "D:/projects/mcp-demo-server/.env" }
     },
+    "outlook-tools": {
+      "command": "node",
+      "args": ["D:/projects/mcp-demo-server/server-outlook.js"]
+    },
     "kafka-alpha-tools": {
       "command": "node",
       "args": ["D:/projects/mcp-demo-server/server-kafka.js"],
@@ -182,6 +237,14 @@ set ENV_FILE=.env.alpha && node server-kafka.js
     }
   }
 }
+```
+
+## Claude Code 註冊範例
+
+```bash
+claude mcp add outlook-tools --scope user -- node "D:\projects\mcp-demo-server\server-outlook.js"
+claude mcp add mysql-alpha-tools --scope user -e ENV_FILE=D:/projects/mcp-demo-server/.env.alpha -- node "D:\projects\mcp-demo-server\server-mysql.js"
+claude mcp list
 ```
 
 ## 主要相依套件
@@ -205,6 +268,7 @@ set ENV_FILE=.env.alpha && node server-kafka.js
 3. 透過 `.env` 操作旗標限制高風險行為（例如停用 delete）。
 4. 限制檔案系統可讀取範圍。
 5. 在可行情況下啟用更嚴格 TLS / 憑證驗證。
+6. `outlook-tools` 會把信箱內容提供給 MCP 客戶端，請只註冊到信任的客戶端。此 server 為唯讀，沒有寄信 / 移動 / 刪除功能。
 
 ## 授權
 
