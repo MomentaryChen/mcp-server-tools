@@ -108,10 +108,17 @@ The project supports optional SSH jump tunnels for MySQL, MongoDB, TDengine, and
 
 Read-only. Talks to the local **classic** Outlook through COM (`scripts/outlook.ps1`, run via PowerShell), so it needs Windows and classic Outlook with the mailbox configured. The new Outlook for Windows has no COM API and cannot be used. Folder paths use `/` (e.g. `Projects/Optim 6`); `inbox`, `sent`, `drafts`, `deleted`, `junk` map to the default folders. Message ids are Outlook EntryIDs returned by list/search.
 
+One PowerShell process is kept running per instance (`outlook.ps1 serve`), so calls skip the PowerShell start-up and the COM attach, and the mailbox folder list is cached between searches. The process starts on the first call, restarts after a timeout or crash, and exits after `OUTLOOK_IDLE_MS` without calls.
+
+Search: plain ASCII queries (letters, digits, spaces) use the Windows Search index (`ci_startswith`, about 10x faster than `LIKE` on a whole mailbox). It matches word prefixes, so a substring inside a word (e.g. `optim` in `suboptimal`) is not found. Queries with CJK characters or punctuation (`-`, `.`, `@`) always use the exact substring `LIKE` match, because the index misses most CJK text. Set `OUTLOOK_SEARCH_MODE=like` to always use `LIKE`.
+
 | Variable | Description |
 |----------|-------------|
 | `OUTLOOK_POWERSHELL` | PowerShell executable (default `powershell.exe`; `pwsh` also works) |
-| `OUTLOOK_TIMEOUT_MS` | Per-call timeout (default `120000`) |
+| `OUTLOOK_TIMEOUT_MS` | Per-call timeout; a timed-out call restarts the PowerShell process (default `120000`) |
+| `OUTLOOK_IDLE_MS` | Stop the PowerShell process after this long without calls (default `600000`) |
+| `OUTLOOK_SEARCH_MODE` | `auto` (indexed search for plain ASCII queries) or `like` (always substring match) (default `auto`) |
+| `OUTLOOK_FOLDER_CACHE_SECONDS` | How long the mailbox folder list is cached for whole-mailbox search (default `300`) |
 | `OUTLOOK_MAX_BODY_CHARS` | Default body length returned by `outlook_get_message` (default `20000`) |
 
 #### Outlook tool parameters

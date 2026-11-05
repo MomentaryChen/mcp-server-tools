@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { execFile } from "child_process";
 import path from "path";
 import { fileURLToPath } from "url";
 import { errorResult, jsonResult } from "../lib/common.js";
+import { OutlookWorker } from "../lib/outlook-worker.js";
 
 const scriptPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "scripts", "outlook.ps1");
 
@@ -10,6 +10,7 @@ export default function create({ env }) {
   const {
     OUTLOOK_POWERSHELL = "powershell.exe",
     OUTLOOK_TIMEOUT_MS = "120000",
+    OUTLOOK_IDLE_MS = "600000",
     OUTLOOK_MAX_BODY_CHARS = "20000"
   } = env;
 
@@ -17,43 +18,20 @@ export default function create({ env }) {
     throw new Error("outlook 模組只支援 Windows（需要本機傳統版 Outlook 的 COM 介面）");
   }
 
-  const timeoutMs = parseInt(OUTLOOK_TIMEOUT_MS, 10);
   const maxBodyChars = parseInt(OUTLOOK_MAX_BODY_CHARS, 10);
 
-  // Run one read-only action in scripts/outlook.ps1 and return its `data`.
-  function runOutlook(action, params = {}) {
-    const paramsB64 = Buffer.from(JSON.stringify(params), "utf-8").toString("base64");
-    const args = ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", scriptPath, action, paramsB64];
-
-    return new Promise((resolve, reject) => {
-      execFile(
-        OUTLOOK_POWERSHELL,
-        args,
-        { timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024, windowsHide: true, encoding: "utf8" },
-        (err, stdout, stderr) => {
-          const out = (stdout || "").trim();
-          if (!out) {
-            reject(new Error(err?.message || stderr || "Outlook script returned no output"));
-            return;
-          }
-          try {
-            const result = JSON.parse(out.slice(out.indexOf("{")));
-            if (result.ok) {
-              resolve(result.data);
-            } else {
-              reject(new Error(result.error));
-            }
-          } catch (parseErr) {
-            reject(new Error(`無法解析 Outlook 輸出: ${parseErr.message}\n${out.slice(0, 500)}`));
-          }
-        }
-      );
-    });
-  }
+  // One persistent PowerShell worker per module instance (shared by all gateway sessions).
+  const worker = new OutlookWorker({
+    command: OUTLOOK_POWERSHELL,
+    scriptPath,
+    timeoutMs: parseInt(OUTLOOK_TIMEOUT_MS, 10),
+    idleMs: parseInt(OUTLOOK_IDLE_MS, 10),
+    env
+  });
 
   async function run(action, params) {
     try {
-      return jsonResult(await runOutlook(action, params));
+      return jsonResult(await worker.request(action, params));
     } catch (err) {
       return errorResult(`Outlook 讀取失敗: ${err.message}`);
     }
@@ -61,6 +39,10 @@ export default function create({ env }) {
 
   return {
     info: { name: "outlook-tools", version: "1.0.0" },
+
+    async close() {
+      worker.stop();
+    },
 
     register(server) {
       const folderSchema = z
@@ -104,7 +86,7 @@ export default function create({ env }) {
         "outlook_search_messages",
         "依關鍵字搜尋郵件（主旨 / 寄件者 / 內文）。未指定 folder 時搜尋整個信箱（不含刪除的郵件與垃圾郵件）",
         {
-          query: z.string().optional().describe("關鍵字（子字串比對，不分大小寫）"),
+          query: z.string().optional().describe("關鍵字（不分大小寫）。純英數關鍵字走索引、比對字首；含中文或標點則為子字串比對"),
           field: z.enum(["all", "subject", "from", "body"]).optional().describe("搜尋欄位（預設 all）"),
           folder: folderSchema,
           includeSubfolders: z.boolean().optional().describe("指定 folder 時是否包含子資料夾"),
