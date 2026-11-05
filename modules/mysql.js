@@ -1,28 +1,16 @@
 import { z } from "zod";
 import mysql from "mysql2/promise";
-import { createSshForwardTunnel, getSshConfigFromEnv, useSshTunnel } from "../scripts/ssh-tunnel.js";
-import { assertOperationAllowed, closeTunnel, lazy, parseBooleanFlag } from "../lib/common.js";
+import { createSshForwardTunnel, getSshConfigFromEnv, useSshTunnel } from "../lib/ssh-tunnel.js";
+import { assertOperationAllowed, closeTunnel, jsonResult, lazy, parseBooleanFlag } from "../lib/common.js";
+import { requireEntries, sqlRecordSchema, toSafeIdentifier } from "../lib/sql.js";
 
-const sqlValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
-const sqlRecordSchema = z.record(z.string(), sqlValueSchema);
-
-function toSafeIdentifier(identifier) {
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(identifier)) {
-    throw new Error(`Invalid SQL identifier: ${identifier}`);
-  }
-  return `\`${identifier}\``;
-}
+const READ_ONLY_PREFIX = /^(SELECT|SHOW|DESCRIBE|DESC|EXPLAIN)\b/i;
 
 function buildWhereClause(where) {
-  const entries = Object.entries(where);
-  if (entries.length === 0) {
-    throw new Error("WHERE 條件不可為空");
-  }
-
   const clauses = [];
   const params = [];
 
-  for (const [column, value] of entries) {
+  for (const [column, value] of requireEntries(where, "where")) {
     const safeColumn = toSafeIdentifier(column);
     if (value === null) {
       clauses.push(`${safeColumn} IS NULL`);
@@ -42,14 +30,9 @@ function assertReadOnlyQuery(sql) {
   }
 
   // Allow only read-only SQL to prevent bypassing write-operation controls via query_mysql.
-  const readOnlyPrefixPattern = /^(SELECT|SHOW|DESCRIBE|DESC|EXPLAIN)\b/i;
-  if (!readOnlyPrefixPattern.test(trimmedSql)) {
+  if (!READ_ONLY_PREFIX.test(trimmedSql)) {
     throw new Error("Operation not allowed: query_mysql only allows read-only SQL");
   }
-}
-
-function asJson(value) {
-  return { content: [{ type: "text", text: JSON.stringify(value, null, 2) }] };
 }
 
 export default function create({ env }) {
@@ -121,7 +104,7 @@ export default function create({ env }) {
           assertOperationAllowed("query_mysql", operationAccess.query);
           assertReadOnlyQuery(sql);
           const [rows] = await (await db()).query(sql);
-          return asJson(rows);
+          return jsonResult(rows);
         }
       );
 
@@ -133,20 +116,14 @@ export default function create({ env }) {
         },
         async ({ table, data }) => {
           assertOperationAllowed("insert_mysql", operationAccess.insert);
-          const entries = Object.entries(data);
-          if (entries.length === 0) {
-            throw new Error("data 不可為空");
-          }
-
-          const safeTable = toSafeIdentifier(table);
-          const columns = entries.map(([column]) => toSafeIdentifier(column));
-          const values = entries.map(([, value]) => value);
+          const entries = requireEntries(data, "data");
+          const columns = entries.map(([column]) => toSafeIdentifier(column)).join(", ");
           const placeholders = entries.map(() => "?").join(", ");
 
-          const sql = `INSERT INTO ${safeTable} (${columns.join(", ")}) VALUES (${placeholders})`;
-          const [result] = await (await db()).execute(sql, values);
+          const sql = `INSERT INTO ${toSafeIdentifier(table)} (${columns}) VALUES (${placeholders})`;
+          const [result] = await (await db()).execute(sql, entries.map(([, value]) => value));
 
-          return asJson({
+          return jsonResult({
             message: "insert success",
             affectedRows: result.affectedRows,
             insertId: result.insertId
@@ -163,30 +140,15 @@ export default function create({ env }) {
         },
         async ({ table, data, where }) => {
           assertOperationAllowed("update_mysql", operationAccess.update);
-          const dataEntries = Object.entries(data);
-          if (dataEntries.length === 0) {
-            throw new Error("data 不可為空");
-          }
-
-          const safeTable = toSafeIdentifier(table);
-          const setClauses = [];
-          const setParams = [];
-
-          for (const [column, value] of dataEntries) {
-            const safeColumn = toSafeIdentifier(column);
-            if (value === null) {
-              setClauses.push(`${safeColumn} = NULL`);
-            } else {
-              setClauses.push(`${safeColumn} = ?`);
-              setParams.push(value);
-            }
-          }
-
+          const dataEntries = requireEntries(data, "data");
+          // A null placeholder value is sent as SQL NULL, so SET needs no special case.
+          const setClause = dataEntries.map(([column]) => `${toSafeIdentifier(column)} = ?`).join(", ");
           const { clause: whereClause, params: whereParams } = buildWhereClause(where);
-          const sql = `UPDATE ${safeTable} SET ${setClauses.join(", ")} WHERE ${whereClause}`;
-          const [result] = await (await db()).execute(sql, [...setParams, ...whereParams]);
 
-          return asJson({
+          const sql = `UPDATE ${toSafeIdentifier(table)} SET ${setClause} WHERE ${whereClause}`;
+          const [result] = await (await db()).execute(sql, [...dataEntries.map(([, value]) => value), ...whereParams]);
+
+          return jsonResult({
             message: "update success",
             affectedRows: result.affectedRows,
             changedRows: result.changedRows
@@ -209,7 +171,7 @@ export default function create({ env }) {
           const sql = `DELETE FROM ${safeTable} WHERE ${whereClause} LIMIT ${safeLimit}`;
           const [result] = await (await db()).execute(sql, params);
 
-          return asJson({
+          return jsonResult({
             message: "delete success",
             affectedRows: result.affectedRows
           });

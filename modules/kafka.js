@@ -1,8 +1,8 @@
 import net from "net";
 import { Kafka, logLevel } from "kafkajs";
 import { z } from "zod";
-import { createSshForwardTunnel, getSshConfigFromEnv, useSshTunnel } from "../scripts/ssh-tunnel.js";
-import { closeTunnel, lazy, parseBooleanFlag } from "../lib/common.js";
+import { createSshForwardTunnel, getSshConfigFromEnv, useSshTunnel } from "../lib/ssh-tunnel.js";
+import { RingBuffer, closeTunnel, jsonResult, lazy, parseBooleanFlag } from "../lib/common.js";
 
 const maxMessages = 10000;
 
@@ -192,7 +192,7 @@ export default function create({ env, argv = [] }) {
     consumerConnected: false,
     consumerRunning: false
   };
-  const messageStore = [];
+  const messageStore = new RingBuffer(maxMessages);
 
   const getCtx = lazy(async () => {
     if (config.brokers.length === 0) {
@@ -295,9 +295,6 @@ export default function create({ env, argv = [] }) {
         };
 
         messageStore.push(record);
-        if (messageStore.length > maxMessages) {
-          messageStore.shift();
-        }
       }
     });
 
@@ -319,29 +316,21 @@ export default function create({ env, argv = [] }) {
       server.tool(
         "kafka_status",
         {},
-        async () => ({
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(
-                {
-                  ...state,
-                  brokers: getCtx.current()?.resolution.brokers ?? config.brokers,
-                  remoteBrokers: config.remoteBrokers ?? config.brokers,
-                  sshTunnel: getCtx.current()?.resolution.sshTunnel ?? false,
-                  topics: config.topics,
-                  groupId: config.groupId,
-                  clientId: config.clientId,
-                  useSsl: config.useSsl,
-                  saslUser: config.username ?? undefined,
-                  messageCount: messageStore.length
-                },
-                null,
-                2
-              )
-            }
-          ]
-        })
+        async () => {
+          const resolution = getCtx.current()?.resolution;
+          return jsonResult({
+            ...state,
+            brokers: resolution?.brokers ?? config.brokers,
+            remoteBrokers: config.remoteBrokers ?? config.brokers,
+            sshTunnel: resolution?.sshTunnel ?? false,
+            topics: config.topics,
+            groupId: config.groupId,
+            clientId: config.clientId,
+            useSsl: config.useSsl,
+            saslUser: config.username ?? undefined,
+            messageCount: messageStore.length
+          });
+        }
       );
 
       server.tool(
@@ -406,14 +395,13 @@ export default function create({ env, argv = [] }) {
           partition: z.number().optional()
         },
         async ({ limit = 10, topic, partition }) => {
-          let messages = [...messageStore];
-          if (topic) {
-            messages = messages.filter((m) => m.topic === topic);
-          }
-          if (partition !== undefined) {
-            messages = messages.filter((m) => m.partition === partition);
-          }
-          return { content: [{ type: "text", text: JSON.stringify(messages.slice(-limit), null, 2) }] };
+          const filtered = topic !== undefined || partition !== undefined;
+          const messages = messageStore.latest(
+            limit,
+            filtered &&
+              ((m) => (topic === undefined || m.topic === topic) && (partition === undefined || m.partition === partition))
+          );
+          return jsonResult(messages);
         }
       );
 
@@ -421,8 +409,7 @@ export default function create({ env, argv = [] }) {
         "kafka_clear_messages",
         {},
         async () => {
-          const count = messageStore.length;
-          messageStore.length = 0;
+          const count = messageStore.clear();
           return { content: [{ type: "text", text: `已清空 ${count} 條緩存消息` }] };
         }
       );

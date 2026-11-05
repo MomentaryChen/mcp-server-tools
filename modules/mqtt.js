@@ -1,7 +1,7 @@
 import { z } from "zod";
 import mqtt from "mqtt";
 import fs from "fs";
-import { lazy } from "../lib/common.js";
+import { RingBuffer, errorResult, jsonResult, lazy, textResult } from "../lib/common.js";
 
 const maxMessages = 10000;
 
@@ -89,16 +89,23 @@ function buildMqttOptions(config) {
   return options;
 }
 
-function topicMatches(pattern, topic) {
-  const regex = new RegExp(`^${pattern.replace(/\+/g, "[^/]+").replace(/#/g, ".*")}$`);
-  return regex.test(topic);
+// Compile an MQTT topic filter once: `+` = one level, trailing `#` = this level and below.
+function compileTopicFilter(pattern) {
+  const levels = pattern.split("/");
+  const multi = levels.at(-1) === "#";
+  if (multi) levels.pop();
+  const body = levels
+    .map((level) => (level === "+" ? "[^/]*" : level.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))
+    .join("/");
+  const regex = new RegExp(`^${body}${multi ? (levels.length ? "(?:/.*)?" : ".*") : ""}$`);
+  return (topic) => regex.test(topic);
 }
 
 // Note: in the gateway one MQTT connection, its subscriptions and the message
 // buffer are shared by every session connected to this instance.
 export default function create({ argv = [] }) {
   const config = parseArgs(argv);
-  const messageStore = [];
+  const messageStore = new RingBuffer(maxMessages);
   let isConnected = false;
 
   const getClient = lazy(
@@ -119,9 +126,9 @@ export default function create({ argv = [] }) {
           isConnected = true;
           console.error(`✅ 已连接到 MQTT Broker: ${brokerUrl}`);
           // (Re)subscribe to every known topic, also after a reconnect.
-          for (const topic of config.topics) {
-            client.subscribe(topic, { qos: 1 }, (err) => {
-              if (err) console.error(`订阅主题失败 ${topic}:`, err.message);
+          if (config.topics.length > 0) {
+            client.subscribe(config.topics, { qos: 1 }, (err) => {
+              if (err) console.error(`订阅主题失败 ${config.topics.join(",")}:`, err.message);
             });
           }
           if (!settled) {
@@ -148,9 +155,6 @@ export default function create({ argv = [] }) {
             qos: packet.qos,
             retain: packet.retain
           });
-          if (messageStore.length > maxMessages) {
-            messageStore.shift();
-          }
         });
 
         client.on("reconnect", () => console.error("正在重新连接 MQTT Broker..."));
@@ -164,8 +168,8 @@ export default function create({ argv = [] }) {
       })
   );
 
-  const notConnected = () => ({ content: [{ type: "text", text: "MQTT 客户端未连接" }], isError: true });
-  const fail = (prefix, err) => ({ content: [{ type: "text", text: `${prefix}: ${err.message}` }], isError: true });
+  const notConnected = () => errorResult("MQTT 客户端未连接");
+  const fail = (prefix, err) => errorResult(`${prefix}: ${err.message}`);
 
   // Connect on first use; returns null when the broker is unreachable.
   async function connectedClient() {
@@ -194,25 +198,14 @@ export default function create({ argv = [] }) {
         async () => {
           // Trigger the first connection so status reflects reality, but don't fail on it.
           await getClient().catch(() => {});
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify(
-                  {
-                    connected: isConnected,
-                    host: config.host,
-                    port: config.port,
-                    useTls: config.useTls,
-                    subscribedTopics: config.topics,
-                    messageCount: messageStore.length
-                  },
-                  null,
-                  2
-                )
-              }
-            ]
-          };
+          return jsonResult({
+            connected: isConnected,
+            host: config.host,
+            port: config.port,
+            useTls: config.useTls,
+            subscribedTopics: config.topics,
+            messageCount: messageStore.length
+          });
         }
       );
 
@@ -223,11 +216,8 @@ export default function create({ argv = [] }) {
           topic: z.string().optional()
         },
         async ({ limit = 10, topic }) => {
-          let messages = [...messageStore];
-          if (topic) {
-            messages = messages.filter((msg) => topicMatches(topic, msg.topic));
-          }
-          return { content: [{ type: "text", text: JSON.stringify(messages.slice(-limit), null, 2) }] };
+          const matches = topic ? compileTopicFilter(topic) : null;
+          return jsonResult(messageStore.latest(limit, matches && ((msg) => matches(msg.topic))));
         }
       );
 
@@ -302,9 +292,7 @@ export default function create({ argv = [] }) {
         "mqtt_clear_messages",
         {},
         async () => {
-          const count = messageStore.length;
-          messageStore.length = 0;
-          return { content: [{ type: "text", text: `已清空 ${count} 条消息` }] };
+          return textResult(`已清空 ${messageStore.clear()} 条消息`);
         }
       );
 

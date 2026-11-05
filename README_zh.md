@@ -8,21 +8,21 @@
 
 本專案可直接接到 Cursor 或其他 MCP 相容客戶端：
 
-- `server.js` - 基礎 hello-world MCP server
-- `server-mysql.js` - MySQL 查詢與資料寫入工具
-- `server-tdengine.js` - TDengine SQL 查詢與資料操作（REST）
-- `server-mongodb.js` - MongoDB 查詢 / 新增 / 更新 / 刪除 / 列集合
-- `server-read-files.js` - 檔案讀取工具
-- `server-axios.js` - HTTP GET/POST/PUT/DELETE 工具
-- `server-mqtt.js` - MQTT 訂閱/發布與動態主題管理
-- `server-kafka.js` - Kafka 消費/發布與動態訂閱
-- `server-outlook.js` - 唯讀讀取本機傳統版 Outlook 信箱（Windows）
+- `servers/hello.js` - 基礎 hello-world MCP server
+- `servers/mysql.js` - MySQL 查詢與資料寫入工具
+- `servers/tdengine.js` - TDengine SQL 查詢與資料操作（REST）
+- `servers/mongodb.js` - MongoDB 查詢 / 新增 / 更新 / 刪除 / 列集合
+- `servers/files.js` - 檔案讀取工具
+- `servers/axios.js` - HTTP GET/POST/PUT/DELETE 工具
+- `servers/mqtt.js` - MQTT 訂閱/發布與動態主題管理
+- `servers/kafka.js` - Kafka 消費/發布與動態訂閱
+- `servers/outlook.js` - 唯讀讀取本機傳統版 Outlook 信箱（Windows）
 
 ## 環境需求
 
 - Node.js `18+`
 - npm
-- 僅 `server-outlook.js`：Windows，並安裝傳統版 Outlook（Microsoft 365 / Office 16）且已設定好信箱帳號
+- 僅 `servers/outlook.js`：Windows，並安裝傳統版 Outlook（Microsoft 365 / Office 16）且已設定好信箱帳號
 
 ## 安裝
 
@@ -34,7 +34,7 @@ cp .env.example .env
 如需切換不同環境設定檔，可用 `ENV_FILE`：
 
 ```bash
-set ENV_FILE=.env.beta && node server-mysql.js
+set ENV_FILE=.env.beta && node servers/mysql.js
 ```
 
 ## 環境變數與設定
@@ -52,38 +52,38 @@ set ENV_FILE=.env.beta && node server-mysql.js
 
 ## 工具清單
 
-### `server.js`
+### `servers/hello.js`
 - `say_hello`
 
-### `server-mysql.js`（`mysql-tools`）
+### `servers/mysql.js`（`mysql-tools`）
 - `query_mysql`
 - `insert_mysql`
 - `update_mysql`
 - `delete_mysql`
 
-### `server-tdengine.js`（`tdengine-tools`）
+### `servers/tdengine.js`（`tdengine-tools`）
 - `query_tdengine`
 - `insert_tdengine`
 - `update_tdengine`
 - `delete_tdengine`
 
-### `server-mongodb.js`（`mongo_db-tools`）
+### `servers/mongodb.js`（`mongo_db-tools`）
 - `query_mongo`
 - `mongo_insert`
 - `mongo_update`
 - `mongo_delete`
 - `list_mongo_collections`
 
-### `server-read-files.js`（`file-tools`）
+### `servers/files.js`（`file-tools`）
 - `readFile`
 
-### `server-axios.js`（`axios-tools`）
+### `servers/axios.js`（`axios-tools`）
 - `call_api_get`
 - `call_api_post`
 - `call_api_put`
 - `call_api_delete`
 
-### `server-mqtt.js`（`mqtt-tools`）
+### `servers/mqtt.js`（`mqtt-tools`）
 - `mqtt_status`
 - `mqtt_get_messages`
 - `mqtt_publish`
@@ -92,14 +92,14 @@ set ENV_FILE=.env.beta && node server-mysql.js
 - `mqtt_unsubscribe`
 - `mqtt_clear_messages`
 
-### `server-kafka.js`（`kafka-tools`）
+### `servers/kafka.js`（`kafka-tools`）
 - `kafka_status`
 - `kafka_publish`
 - `kafka_subscribe`
 - `kafka_get_messages`
 - `kafka_clear_messages`
 
-### `server-outlook.js`（`outlook-tools`）
+### `servers/outlook.js`（`outlook-tools`）
 - `outlook_status`
 - `outlook_list_folders`
 - `outlook_list_messages`
@@ -184,21 +184,21 @@ KAFKA_SSH_JUMPS=[{"host":"jump-1.example.com","port":22,"user":"ubuntu","private
 ## 啟動範例
 
 ```bash
-node server.js
-node server-mysql.js
-node server-tdengine.js
-node server-mongodb.js
-node server-read-files.js
-node server-axios.js
-node server-mqtt.js --host alpha --topics "/events/#"
-node server-kafka.js --brokers localhost:9092 --topics OC_EVENTS,OC_METRICS
-node server-outlook.js
+node servers/hello.js
+node servers/mysql.js
+node servers/tdengine.js
+node servers/mongodb.js
+node servers/files.js
+node servers/axios.js
+node servers/mqtt.js --host alpha --topics "/events/#"
+node servers/kafka.js --brokers localhost:9092 --topics OC_EVENTS,OC_METRICS
+node servers/outlook.js
 ```
 
 使用環境設定檔啟動：
 
 ```bash
-set ENV_FILE=.env.alpha && node server-kafka.js
+set ENV_FILE=.env.alpha && node servers/kafka.js
 ```
 
 ## Cursor MCP 設定範例
@@ -208,31 +208,31 @@ set ENV_FILE=.env.alpha && node server-kafka.js
   "mcpServers": {
     "mysql-tools": {
       "command": "node",
-      "args": ["D:/projects/mcp-demo-server/server-mysql.js"],
+      "args": ["D:/projects/mcp-demo-server/servers/mysql.js"],
       "env": { "ENV_FILE": "D:/projects/mcp-demo-server/.env" }
     },
     "tdengine-tools": {
       "command": "node",
-      "args": ["D:/projects/mcp-demo-server/server-tdengine.js"],
+      "args": ["D:/projects/mcp-demo-server/servers/tdengine.js"],
       "env": { "ENV_FILE": "D:/projects/mcp-demo-server/.env" }
     },
     "mongo-db-tools": {
       "command": "node",
-      "args": ["D:/projects/mcp-demo-server/server-mongodb.js"],
+      "args": ["D:/projects/mcp-demo-server/servers/mongodb.js"],
       "env": { "ENV_FILE": "D:/projects/mcp-demo-server/.env" }
     },
     "outlook-tools": {
       "command": "node",
-      "args": ["D:/projects/mcp-demo-server/server-outlook.js"]
+      "args": ["D:/projects/mcp-demo-server/serversoutlook.js"]
     },
     "kafka-alpha-tools": {
       "command": "node",
-      "args": ["D:/projects/mcp-demo-server/server-kafka.js"],
+      "args": ["D:/projects/mcp-demo-server/servers/kafka.js"],
       "env": { "ENV_FILE": "D:/projects/mcp-demo-server/.env.alpha" }
     },
     "kafka-beta-tools": {
       "command": "node",
-      "args": ["D:/projects/mcp-demo-server/server-kafka.js"],
+      "args": ["D:/projects/mcp-demo-server/servers/kafka.js"],
       "env": { "ENV_FILE": "D:/projects/mcp-demo-server/.env.beta" }
     }
   }
@@ -242,8 +242,8 @@ set ENV_FILE=.env.alpha && node server-kafka.js
 ## Claude Code 註冊範例
 
 ```bash
-claude mcp add outlook-tools --scope user -- node "D:\projects\mcp-demo-server\server-outlook.js"
-claude mcp add mysql-alpha-tools --scope user -e ENV_FILE=D:/projects/mcp-demo-server/.env.alpha -- node "D:\projects\mcp-demo-server\server-mysql.js"
+claude mcp add outlook-tools --scope user -- node "D:\projects\mcp-demo-server\servers\outlook.js"
+claude mcp add mysql-alpha-tools --scope user -e ENV_FILE=D:/projects/mcp-demo-server/.env.alpha -- node "D:\projects\mcp-demo-server\servers\mysql.js"
 claude mcp list
 ```
 

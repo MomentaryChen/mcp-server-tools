@@ -67,7 +67,7 @@ const sessionIdleMs = sessionIdleMinutes * 60 * 1000;
 
 // name -> { name, module, mod?, error? }
 const instances = new Map();
-for (const [name, spec] of Object.entries(config.instances || {})) {
+async function loadInstance(name, spec) {
   const entry = { name, module: spec.module };
   instances.set(name, entry);
   try {
@@ -87,6 +87,8 @@ for (const [name, spec] of Object.entries(config.instances || {})) {
     console.error(`❌ instance ${name} 載入失敗: ${err.message}`);
   }
 }
+// Load all instances concurrently (module imports are cached, so shared modules load once).
+await Promise.all(Object.entries(config.instances || {}).map(([name, spec]) => loadInstance(name, spec)));
 
 // ---------------------------------------------------------------- sessions
 // sessionId -> { instance, client, transport, server, lastSeen, openStreams }
@@ -166,26 +168,30 @@ function readJsonBody(req) {
 // Only accept local Host headers (DNS rebinding protection).
 const allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`]);
 
-function countBy(items, key) {
-  const counts = {};
-  for (const item of items) counts[key(item)] = (counts[key(item)] || 0) + 1;
-  return counts;
-}
-
 function status() {
+  // One pass over sessions instead of one filter per instance.
+  let connectedSessions = 0;
+  const clients = {};
+  const perInstance = {};
+  for (const s of sessions.values()) {
+    if (s.openStreams > 0) connectedSessions++;
+    clients[s.client] = (clients[s.client] || 0) + 1;
+    perInstance[s.instance] = (perInstance[s.instance] || 0) + 1;
+  }
+
   return {
     ok: true,
     pid: process.pid,
     uptimeSec: Math.round(process.uptime()),
     sessions: sessions.size,
-    connectedSessions: [...sessions.values()].filter((s) => s.openStreams > 0).length,
+    connectedSessions,
     sessionIdleMinutes,
-    clients: countBy([...sessions.values()], (s) => s.client),
+    clients,
     instances: [...instances.values()].map((i) => ({
       name: i.name,
       module: i.module,
       url: `http://${host}:${port}/${i.name}/mcp`,
-      sessions: [...sessions.values()].filter((s) => s.instance === i.name).length,
+      sessions: perInstance[i.name] || 0,
       ...(i.error ? { error: i.error } : {})
     }))
   };
@@ -267,12 +273,8 @@ httpServer.listen(port, host, () => {
 async function shutdown(signal) {
   console.error(`⏹️ 收到 ${signal}，關閉 gateway`);
   httpServer.close();
-  for (const session of sessions.values()) {
-    await session.transport.close().catch(() => {});
-  }
-  for (const instance of instances.values()) {
-    await instance.mod?.close?.().catch(() => {});
-  }
+  await Promise.allSettled([...sessions.values()].map((s) => s.transport.close()));
+  await Promise.allSettled([...instances.values()].map(async (i) => i.mod?.close?.()));
   process.exit(0);
 }
 process.on("SIGINT", () => shutdown("SIGINT"));

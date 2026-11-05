@@ -1,16 +1,7 @@
 import { z } from "zod";
-import { createSshForwardTunnel, getSshConfigFromEnv, useSshTunnel } from "../scripts/ssh-tunnel.js";
-import { assertOperationAllowed, closeTunnel, lazy, parseBooleanFlag } from "../lib/common.js";
-
-const sqlValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
-const sqlRecordSchema = z.record(z.string(), sqlValueSchema);
-
-function toSafeIdentifier(identifier) {
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(identifier)) {
-    throw new Error(`Invalid SQL identifier: ${identifier}`);
-  }
-  return `\`${identifier}\``;
-}
+import { createSshForwardTunnel, getSshConfigFromEnv, useSshTunnel } from "../lib/ssh-tunnel.js";
+import { assertOperationAllowed, closeTunnel, errorResult, jsonResult, lazy, parseBooleanFlag } from "../lib/common.js";
+import { requireEntries, sqlRecordSchema, toSafeIdentifier } from "../lib/sql.js";
 
 function toSqlLiteral(value) {
   if (value === null) {
@@ -30,12 +21,7 @@ function toSqlLiteral(value) {
 }
 
 function buildWhereClause(where) {
-  const entries = Object.entries(where);
-  if (entries.length === 0) {
-    throw new Error("WHERE 條件不可為空");
-  }
-
-  return entries
+  return requireEntries(where, "where")
     .map(([column, value]) => {
       const safeColumn = toSafeIdentifier(column);
       if (value === null) {
@@ -52,6 +38,7 @@ export default function create({ env }) {
     TDENGINE_PORT = "6041",
     TDENGINE_USER = "root",
     TDENGINE_PASSWORD = "taosdata",
+    TDENGINE_TIMEOUT_MS = "120000",
     TDENGINE_QUERY_OPERATION = "true",
     TDENGINE_INSERT_OPERATION = "true",
     TDENGINE_UPDATE_OPERATION = "true",
@@ -65,44 +52,35 @@ export default function create({ env }) {
     delete: parseBooleanFlag(TDENGINE_DELETE_OPERATION, true)
   };
 
+  const timeoutMs = parseInt(TDENGINE_TIMEOUT_MS, 10);
+  const headers = {
+    Authorization: `Basic ${Buffer.from(`${TDENGINE_USER}:${TDENGINE_PASSWORD}`).toString("base64")}`,
+    // TDengine REST API expects a raw SQL string with text/plain content type.
+    "Content-Type": "text/plain"
+  };
+
   // REST endpoint (through an SSH tunnel when configured), resolved on first use.
   const getEndpoint = lazy(async () => {
     const tdenginePort = parseInt(TDENGINE_PORT, 10);
     const sshConfig = getSshConfigFromEnv(env, "TDENGINE");
+    let target = { host: TDENGINE_HOST, port: tdenginePort };
 
-    if (!useSshTunnel(sshConfig)) {
+    if (useSshTunnel(sshConfig)) {
+      target = await createSshForwardTunnel({ sshConfig, dstAddr: TDENGINE_HOST, dstPort: tdenginePort });
+      console.error(`✅ TDengine 已就緒（經 SSH 通道，jump hops: ${sshConfig.jumps.length}）`);
+    } else {
       console.error(`✅ TDengine 已就緒（直連 ${TDENGINE_HOST}:${tdenginePort}）`);
-      return { host: TDENGINE_HOST, port: tdenginePort };
     }
-
-    const target = await createSshForwardTunnel({ sshConfig, dstAddr: TDENGINE_HOST, dstPort: tdenginePort });
-    console.error(`✅ TDengine 已就緒（經 SSH 通道，jump hops: ${sshConfig.jumps.length}）`);
-    return target;
+    return { ...target, url: `http://${target.host}:${target.port}/rest/sql` };
   });
 
-  // TDengine REST API query function.
   async function queryTDengine(sql) {
-    const { host, port } = await getEndpoint();
-    const url = `http://${host}:${port}/rest/sql`;
-    const auth = Buffer.from(`${TDENGINE_USER}:${TDENGINE_PASSWORD}`).toString("base64");
-
-    let sqlString;
-    if (typeof sql === "string") {
-      sqlString = sql;
-    } else if (sql && typeof sql === "object" && sql.sql) {
-      sqlString = sql.sql;
-    } else {
-      sqlString = String(sql);
-    }
-
-    // TDengine REST API expects a raw SQL string with text/plain content type.
+    const { url } = await getEndpoint();
     const response = await fetch(url, {
       method: "POST",
-      headers: {
-        Authorization: `Basic ${auth}`,
-        "Content-Type": "text/plain"
-      },
-      body: sqlString
+      headers,
+      body: sql,
+      signal: AbortSignal.timeout(timeoutMs)
     });
 
     if (!response.ok) {
@@ -116,10 +94,9 @@ export default function create({ env }) {
   // Wrap a handler: JSON result on success, isError text on failure.
   const handle = (fn) => async (params) => {
     try {
-      const result = await fn(params);
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      return jsonResult(await fn(params));
     } catch (error) {
-      return { content: [{ type: "text", text: `Error: ${error.message}` }], isError: true };
+      return errorResult(`Error: ${error.message}`);
     }
   };
 
@@ -135,9 +112,9 @@ export default function create({ env }) {
       server.tool(
         "query_tdengine",
         { sql: z.string() },
-        handle(async (params) => {
+        handle(async ({ sql }) => {
           assertOperationAllowed("query_tdengine", operationAccess.query);
-          return queryTDengine(params?.sql || params);
+          return queryTDengine(sql);
         })
       );
 
@@ -149,15 +126,10 @@ export default function create({ env }) {
         },
         handle(async ({ table, data }) => {
           assertOperationAllowed("insert_tdengine", operationAccess.insert);
-          const entries = Object.entries(data);
-          if (entries.length === 0) {
-            throw new Error("data 不可為空");
-          }
-
-          const safeTable = toSafeIdentifier(table);
+          const entries = requireEntries(data, "data");
           const columns = entries.map(([column]) => toSafeIdentifier(column)).join(", ");
           const values = entries.map(([, value]) => toSqlLiteral(value)).join(", ");
-          return queryTDengine(`INSERT INTO ${safeTable} (${columns}) VALUES (${values})`);
+          return queryTDengine(`INSERT INTO ${toSafeIdentifier(table)} (${columns}) VALUES (${values})`);
         })
       );
 
@@ -170,16 +142,10 @@ export default function create({ env }) {
         },
         handle(async ({ table, data, where }) => {
           assertOperationAllowed("update_tdengine", operationAccess.update);
-          const entries = Object.entries(data);
-          if (entries.length === 0) {
-            throw new Error("data 不可為空");
-          }
-
-          const safeTable = toSafeIdentifier(table);
-          const setClause = entries
+          const setClause = requireEntries(data, "data")
             .map(([column, value]) => `${toSafeIdentifier(column)} = ${toSqlLiteral(value)}`)
             .join(", ");
-          return queryTDengine(`UPDATE ${safeTable} SET ${setClause} WHERE ${buildWhereClause(where)}`);
+          return queryTDengine(`UPDATE ${toSafeIdentifier(table)} SET ${setClause} WHERE ${buildWhereClause(where)}`);
         })
       );
 
@@ -191,8 +157,7 @@ export default function create({ env }) {
         },
         handle(async ({ table, where }) => {
           assertOperationAllowed("delete_tdengine", operationAccess.delete);
-          const safeTable = toSafeIdentifier(table);
-          return queryTDengine(`DELETE FROM ${safeTable} WHERE ${buildWhereClause(where)}`);
+          return queryTDengine(`DELETE FROM ${toSafeIdentifier(table)} WHERE ${buildWhereClause(where)}`);
         })
       );
     }

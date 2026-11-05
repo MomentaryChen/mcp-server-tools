@@ -2,6 +2,7 @@ import { z } from "zod";
 import { execFile } from "child_process";
 import path from "path";
 import { fileURLToPath } from "url";
+import { errorResult, jsonResult } from "../lib/common.js";
 
 const scriptPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "scripts", "outlook.ps1");
 
@@ -50,19 +51,11 @@ export default function create({ env }) {
     });
   }
 
-  function asText(data) {
-    return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
-  }
-
-  function asError(err) {
-    return { content: [{ type: "text", text: `Outlook 讀取失敗: ${err.message}` }], isError: true };
-  }
-
   async function run(action, params) {
     try {
-      return asText(await runOutlook(action, params));
+      return jsonResult(await runOutlook(action, params));
     } catch (err) {
-      return asError(err);
+      return errorResult(`Outlook 讀取失敗: ${err.message}`);
     }
   }
 
