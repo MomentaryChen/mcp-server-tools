@@ -6,3 +6,5 @@ _tmp_*
 
 alpha
 beta
+gateway.config.json
+logs/

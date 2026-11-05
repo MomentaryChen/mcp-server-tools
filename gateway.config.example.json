@@ -1,0 +1,42 @@
+{
+  "host": "127.0.0.1",
+  "port": 3800,
+  "sessionIdleHours": 168,
+  "instances": {
+    "hello": {
+      "module": "hello"
+    },
+    "mysql-alpha-tools": {
+      "module": "mysql",
+      "envFile": ".env.alpha"
+    },
+    "mongodb-alpha-tools": {
+      "module": "mongodb",
+      "envFile": ".env.alpha"
+    },
+    "tdengine-alpha-tools": {
+      "module": "tdengine",
+      "envFile": ".env.alpha"
+    },
+    "kafka-alpha-tools": {
+      "module": "kafka",
+      "envFile": ".env.alpha"
+    },
+    "mqtt-alpha-tools": {
+      "module": "mqtt",
+      "args": [
+        "--host",
+        "mqtt.example.com",
+        "--port",
+        "8883",
+        "--username",
+        "<user>",
+        "--password",
+        "<password>"
+      ]
+    },
+    "outlook-tools": {
+      "module": "outlook"
+    }
+  }
+}

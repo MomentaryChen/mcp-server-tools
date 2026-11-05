@@ -247,6 +247,44 @@ claude mcp add mysql-alpha-tools --scope user -e ENV_FILE=D:/projects/mcp-demo-s
 claude mcp list
 ```
 
+## 共用 HTTP Gateway（Claude Code 建議用法）
+
+用 stdio 時，每個 client 會各自 spawn 一份所有 server：23 個 server x N 個 Claude CLI 視窗 = 23N 個 node process。
+`gateway.js` 只跑**一個**常駐 process，透過 MCP Streamable HTTP 提供所有 server：
+
+```
+Claude CLI #1 ─HTTP─┐
+Claude CLI #2 ─HTTP─┼─> gateway.js（1 個 node process）── http://127.0.0.1:3800/<instance>/mcp
+Claude CLI #3 ─HTTP─┘
+```
+
+- 每個 client 有自己的 MCP session；DB 連線池、SSH tunnel、broker 連線每個 instance 只建一次（第一次呼叫 tool 時才建），大家共用。
+- 只綁 `127.0.0.1`，並拒絕非本機的 `Host` header。
+- MQTT / Kafka instance 的連線、訂閱清單與訊息暫存由所有 session 共用。
+- Log：`logs/gateway.log`。狀態：`http://127.0.0.1:3800/health`。
+
+設定：
+
+```bash
+cp gateway.config.example.json gateway.config.json   # 每個 instance 一筆：module、envFile、args
+node gateway.js                                       # 前景測試
+node scripts/gateway-smoke-test.js                    # 列出每個 instance 的 tools
+```
+
+開機（登入）自動啟動（Windows 工作排程器，無視窗、掛掉自動重啟）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\gateway-task.ps1 install   # 另有 start | stop | restart | status | uninstall
+```
+
+在 Claude Code 註冊（tool 名稱與 stdio 版相同）：
+
+```bash
+claude mcp add --transport http --scope user mysql-alpha-tools http://127.0.0.1:3800/mysql-alpha-tools/mcp
+```
+
+修改 `gateway.config.json` 或 `.env.*` 後，執行 `gateway-task.ps1 restart`。
+
 ## 主要相依套件
 
 - `@modelcontextprotocol/sdk`

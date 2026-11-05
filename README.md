@@ -247,6 +247,44 @@ claude mcp add mysql-alpha-tools --scope user -e ENV_FILE=D:/projects/mcp-demo-s
 claude mcp list
 ```
 
+## Shared HTTP Gateway (recommended for Claude Code)
+
+With stdio, every client spawns its own copy of every server: 23 servers x N Claude CLI windows = 23N node processes.
+`gateway.js` runs **one** long-lived process that serves every configured server over MCP Streamable HTTP:
+
+```
+Claude CLI #1 ─HTTP─┐
+Claude CLI #2 ─HTTP─┼─> gateway.js (1 node process) ── http://127.0.0.1:3800/<instance>/mcp
+Claude CLI #3 ─HTTP─┘
+```
+
+- Each client gets its own MCP session; DB pools, SSH tunnels and broker connections are created once per instance, on its first tool call, and shared.
+- Binds to `127.0.0.1` only and rejects non-local `Host` headers.
+- MQTT / Kafka instances share one connection, subscription list and message buffer across all sessions.
+- Logs: `logs/gateway.log`. Status: `http://127.0.0.1:3800/health`.
+
+Setup:
+
+```bash
+cp gateway.config.example.json gateway.config.json   # one entry per instance: module, envFile, args
+node gateway.js                                       # foreground test
+node scripts/gateway-smoke-test.js                    # list tools of every instance
+```
+
+Run at logon (Windows scheduled task, hidden, auto-restart):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\gateway-task.ps1 install   # also: start | stop | restart | status | uninstall
+```
+
+Register in Claude Code (the tool names stay the same as with stdio):
+
+```bash
+claude mcp add --transport http --scope user mysql-alpha-tools http://127.0.0.1:3800/mysql-alpha-tools/mcp
+```
+
+After changing `gateway.config.json` or `.env.*`, run `gateway-task.ps1 restart`.
+
 ## Main Dependencies
 
 - `@modelcontextprotocol/sdk`
