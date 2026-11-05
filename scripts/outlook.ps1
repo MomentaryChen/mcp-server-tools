@@ -1,4 +1,4 @@
-# Read-only Outlook (classic) access via COM, used by server-outlook.js.
+# Read-only Outlook (classic) access via COM, used by modules/outlook.js.
 # Usage: outlook.ps1 <action> <base64-utf8-json-params>
 # Writes a single JSON document to stdout: { ok: true, data } or { ok: false, error }.
 param(

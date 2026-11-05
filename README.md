@@ -8,21 +8,21 @@ A collection of Model Context Protocol (MCP) server implementations for database
 
 This repository provides MCP servers you can plug into Cursor or any MCP-compatible client:
 
-- `server.js` - Basic hello-world MCP server
-- `server-mysql.js` - MySQL query and CRUD-like operations
-- `server-tdengine.js` - TDengine SQL query and data operations via REST
-- `server-mongodb.js` - MongoDB query/insert/update/delete/list collections
-- `server-read-files.js` - File reading tool
-- `server-axios.js` - HTTP GET/POST/PUT/DELETE tools
-- `server-mqtt.js` - MQTT subscribe/publish with runtime topic management
-- `server-kafka.js` - Kafka consume/publish with runtime subscriptions
-- `server-outlook.js` - Read-only access to the local classic Outlook mailbox (Windows)
+- `servers/hello.js` - Basic hello-world MCP server
+- `servers/mysql.js` - MySQL query and CRUD-like operations
+- `servers/tdengine.js` - TDengine SQL query and data operations via REST
+- `servers/mongodb.js` - MongoDB query/insert/update/delete/list collections
+- `servers/files.js` - File reading tool
+- `servers/axios.js` - HTTP GET/POST/PUT/DELETE tools
+- `servers/mqtt.js` - MQTT subscribe/publish with runtime topic management
+- `servers/kafka.js` - Kafka consume/publish with runtime subscriptions
+- `servers/outlook.js` - Read-only access to the local classic Outlook mailbox (Windows)
 
 ## Requirements
 
 - Node.js `18+`
 - npm
-- `server-outlook.js` only: Windows with classic Outlook (Microsoft 365 / Office 16) and the mailbox account configured
+- `servers/outlook.js` only: Windows with classic Outlook (Microsoft 365 / Office 16) and the mailbox account configured
 
 ## Installation
 
@@ -34,7 +34,7 @@ cp .env.example .env
 Use a different env file when needed:
 
 ```bash
-set ENV_FILE=.env.beta && node server-mysql.js
+set ENV_FILE=.env.beta && node servers/mysql.js
 ```
 
 ## Environment Configuration
@@ -52,38 +52,38 @@ The project supports optional SSH jump tunnels for MySQL, MongoDB, TDengine, and
 
 ## Tool Matrix
 
-### `server.js`
+### `servers/hello.js`
 - `say_hello`
 
-### `server-mysql.js` (`mysql-tools`)
+### `servers/mysql.js` (`mysql-tools`)
 - `query_mysql`
 - `insert_mysql`
 - `update_mysql`
 - `delete_mysql`
 
-### `server-tdengine.js` (`tdengine-tools`)
+### `servers/tdengine.js` (`tdengine-tools`)
 - `query_tdengine`
 - `insert_tdengine`
 - `update_tdengine`
 - `delete_tdengine`
 
-### `server-mongodb.js` (`mongo_db-tools`)
+### `servers/mongodb.js` (`mongo_db-tools`)
 - `query_mongo`
 - `mongo_insert`
 - `mongo_update`
 - `mongo_delete`
 - `list_mongo_collections`
 
-### `server-read-files.js` (`file-tools`)
+### `servers/files.js` (`file-tools`)
 - `readFile`
 
-### `server-axios.js` (`axios-tools`)
+### `servers/axios.js` (`axios-tools`)
 - `call_api_get`
 - `call_api_post`
 - `call_api_put`
 - `call_api_delete`
 
-### `server-mqtt.js` (`mqtt-tools`)
+### `servers/mqtt.js` (`mqtt-tools`)
 - `mqtt_status`
 - `mqtt_get_messages`
 - `mqtt_publish`
@@ -92,14 +92,14 @@ The project supports optional SSH jump tunnels for MySQL, MongoDB, TDengine, and
 - `mqtt_unsubscribe`
 - `mqtt_clear_messages`
 
-### `server-kafka.js` (`kafka-tools`)
+### `servers/kafka.js` (`kafka-tools`)
 - `kafka_status`
 - `kafka_publish`
 - `kafka_subscribe`
 - `kafka_get_messages`
 - `kafka_clear_messages`
 
-### `server-outlook.js` (`outlook-tools`)
+### `servers/outlook.js` (`outlook-tools`)
 - `outlook_status`
 - `outlook_list_folders`
 - `outlook_list_messages`
@@ -184,21 +184,21 @@ KAFKA_SSH_JUMPS=[{"host":"jump-1.example.com","port":22,"user":"ubuntu","private
 ## Run Servers
 
 ```bash
-node server.js
-node server-mysql.js
-node server-tdengine.js
-node server-mongodb.js
-node server-read-files.js
-node server-axios.js
-node server-mqtt.js --host alpha --topics "/events/#"
-node server-kafka.js --brokers localhost:9092 --topics OC_EVENTS,OC_METRICS
-node server-outlook.js
+node servers/hello.js
+node servers/mysql.js
+node servers/tdengine.js
+node servers/mongodb.js
+node servers/files.js
+node servers/axios.js
+node servers/mqtt.js --host alpha --topics "/events/#"
+node servers/kafka.js --brokers localhost:9092 --topics OC_EVENTS,OC_METRICS
+node servers/outlook.js
 ```
 
 With environment file:
 
 ```bash
-set ENV_FILE=.env.alpha && node server-kafka.js
+set ENV_FILE=.env.alpha && node servers/kafka.js
 ```
 
 ## Cursor MCP Config Example
@@ -208,31 +208,31 @@ set ENV_FILE=.env.alpha && node server-kafka.js
   "mcpServers": {
     "mysql-tools": {
       "command": "node",
-      "args": ["D:/projects/mcp-demo-server/server-mysql.js"],
+      "args": ["D:/projects/mcp-demo-server/servers/mysql.js"],
       "env": { "ENV_FILE": "D:/projects/mcp-demo-server/.env" }
     },
     "tdengine-tools": {
       "command": "node",
-      "args": ["D:/projects/mcp-demo-server/server-tdengine.js"],
+      "args": ["D:/projects/mcp-demo-server/servers/tdengine.js"],
       "env": { "ENV_FILE": "D:/projects/mcp-demo-server/.env" }
     },
     "mongo-db-tools": {
       "command": "node",
-      "args": ["D:/projects/mcp-demo-server/server-mongodb.js"],
+      "args": ["D:/projects/mcp-demo-server/servers/mongodb.js"],
       "env": { "ENV_FILE": "D:/projects/mcp-demo-server/.env" }
     },
     "outlook-tools": {
       "command": "node",
-      "args": ["D:/projects/mcp-demo-server/server-outlook.js"]
+      "args": ["D:/projects/mcp-demo-server/serversoutlook.js"]
     },
     "kafka-alpha-tools": {
       "command": "node",
-      "args": ["D:/projects/mcp-demo-server/server-kafka.js"],
+      "args": ["D:/projects/mcp-demo-server/servers/kafka.js"],
       "env": { "ENV_FILE": "D:/projects/mcp-demo-server/.env.alpha" }
     },
     "kafka-beta-tools": {
       "command": "node",
-      "args": ["D:/projects/mcp-demo-server/server-kafka.js"],
+      "args": ["D:/projects/mcp-demo-server/servers/kafka.js"],
       "env": { "ENV_FILE": "D:/projects/mcp-demo-server/.env.beta" }
     }
   }
@@ -242,8 +242,8 @@ set ENV_FILE=.env.alpha && node server-kafka.js
 ## Claude Code Registration Example
 
 ```bash
-claude mcp add outlook-tools --scope user -- node "D:\projects\mcp-demo-server\server-outlook.js"
-claude mcp add mysql-alpha-tools --scope user -e ENV_FILE=D:/projects/mcp-demo-server/.env.alpha -- node "D:\projects\mcp-demo-server\server-mysql.js"
+claude mcp add outlook-tools --scope user -- node "D:\projects\mcp-demo-server\servers\outlook.js"
+claude mcp add mysql-alpha-tools --scope user -e ENV_FILE=D:/projects/mcp-demo-server/.env.alpha -- node "D:\projects\mcp-demo-server\servers\mysql.js"
 claude mcp list
 ```
 

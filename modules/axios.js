@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { apiRequest } from "../scripts/axios.js";
+import { apiRequest } from "../lib/http.js";
+import { jsonResult as asText } from "../lib/common.js";
 
 // Accept a JSON string or object body; fall back to { data: <string> } when not JSON.
 function parseBody(body) {
@@ -18,10 +19,6 @@ function parseBody(body) {
   } catch {
     return { data: body };
   }
-}
-
-function asText(result) {
-  return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
 }
 
 export default function create() {

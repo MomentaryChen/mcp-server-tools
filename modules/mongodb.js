@@ -1,6 +1,6 @@
 import { z } from "zod";
 import pkg from "mongodb";
-import { createSshForwardTunnel, getSshConfigFromEnv, useSshTunnel } from "../scripts/ssh-tunnel.js";
+import { createSshForwardTunnel, getSshConfigFromEnv, useSshTunnel } from "../lib/ssh-tunnel.js";
 import { assertOperationAllowed, closeTunnel, lazy, parseBooleanFlag } from "../lib/common.js";
 
 const { MongoClient } = pkg;
