@@ -108,10 +108,17 @@ set ENV_FILE=.env.beta && node servers/mysql.js
 
 唯讀。透過 PowerShell 執行 `scripts/outlook.ps1`，以 COM 連到本機**傳統版** Outlook，因此需要 Windows，且傳統版 Outlook 已設定好信箱帳號；新版 Outlook for Windows 沒有 COM API，無法使用。資料夾路徑以 `/` 分隔（例如 `Projects/Optim 6`），`inbox`、`sent`、`drafts`、`deleted`、`junk` 代表預設資料夾。郵件 id 為 list / search 回傳的 Outlook EntryID。
 
+每個 instance 會常駐一個 PowerShell 程序（`outlook.ps1 serve`），每次呼叫不必重新啟動 PowerShell、重新連上 COM，整個信箱搜尋時的資料夾清單也會快取。程序在第一次呼叫時啟動，逾時或當掉後自動重啟，閒置超過 `OUTLOOK_IDLE_MS` 就結束。
+
+搜尋：純 ASCII 關鍵字（英文字母、數字、空白）走 Windows Search 索引（`ci_startswith`，整個信箱搜尋比 `LIKE` 快約 10 倍）。它比對的是字首，所以字中間的子字串（例如 `suboptimal` 裡的 `optim`）找不到。含中日韓文字或標點（`-`、`.`、`@`）的關鍵字一律用精確的子字串 `LIKE` 比對，因為索引對中文大多比對不到。設定 `OUTLOOK_SEARCH_MODE=like` 可一律使用 `LIKE`。
+
 | 變數 | 說明 |
 |------|------|
 | `OUTLOOK_POWERSHELL` | PowerShell 執行檔（預設 `powershell.exe`，也可用 `pwsh`） |
-| `OUTLOOK_TIMEOUT_MS` | 單次呼叫逾時（預設 `120000`） |
+| `OUTLOOK_TIMEOUT_MS` | 單次呼叫逾時；逾時會重啟 PowerShell 程序（預設 `120000`） |
+| `OUTLOOK_IDLE_MS` | 閒置超過此時間就結束 PowerShell 程序（預設 `600000`） |
+| `OUTLOOK_SEARCH_MODE` | `auto`（純 ASCII 關鍵字走索引）或 `like`（一律子字串比對）（預設 `auto`） |
+| `OUTLOOK_FOLDER_CACHE_SECONDS` | 整個信箱搜尋時資料夾清單的快取秒數（預設 `300`） |
 | `OUTLOOK_MAX_BODY_CHARS` | `outlook_get_message` 預設回傳的內文長度（預設 `20000`） |
 
 #### Outlook 工具參數
