@@ -150,7 +150,7 @@ function createBrokerSocketFactory(brokerAddressMap) {
   };
 }
 
-async function resolveBrokers(env, brokers) {
+async function resolveBrokers(env, brokers, onTunnelClose) {
   const sshConfig = getSshConfigFromEnv(env, "KAFKA");
 
   if (!useSshTunnel(sshConfig)) {
@@ -163,7 +163,7 @@ async function resolveBrokers(env, brokers) {
 
   for (const broker of brokers) {
     const { host, port } = parseBrokerEndpoint(broker);
-    const tunnelTarget = await createSshForwardTunnel({ sshConfig, dstAddr: host, dstPort: port });
+    const tunnelTarget = await createSshForwardTunnel({ sshConfig, dstAddr: host, dstPort: port, onClose: onTunnelClose });
     tunnels.push(tunnelTarget);
     const localBroker = `${tunnelTarget.host}:${tunnelTarget.port}`;
     const localEndpoint = parseBrokerEndpoint(localBroker);
@@ -199,7 +199,18 @@ export default function create({ env, argv = [] }) {
       throw new Error("必須提供 --brokers，或於 .env 設定 KAFKA_BROKERS / KAFKA_HOST");
     }
 
-    const resolution = await resolveBrokers(env, config.brokers);
+    // An SSH session dying makes the client unusable: tear everything down and let the next
+    // tool call reconnect (fresh tunnels, re-subscribe, restart the consumer). A single broker
+    // refusing the forwarded connection is not: kafkajs keeps using the other brokers.
+    let ctx;
+    let dropped = false;
+    const onTunnelClose = ({ channelFailure }) => {
+      if (dropped || channelFailure) return;
+      dropped = true;
+      getCtx.reset();
+      if (ctx) disconnect(ctx);
+    };
+    const resolution = await resolveBrokers(env, config.brokers, onTunnelClose);
     config.remoteBrokers = resolution.remoteBrokers;
 
     const kafka = new Kafka({
@@ -216,7 +227,7 @@ export default function create({ env, argv = [] }) {
       logLevel: logLevel.ERROR
     });
 
-    const ctx = {
+    ctx = {
       producer: kafka.producer(),
       consumer: kafka.consumer({ groupId: config.groupId }),
       resolution

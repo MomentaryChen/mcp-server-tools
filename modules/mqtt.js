@@ -323,18 +323,7 @@ export default function create({ argv = [] }) {
             );
             const successCount = results.filter((r) => r.success).length;
 
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: JSON.stringify(
-                    { total: topics.length, success: successCount, failed: topics.length - successCount, results },
-                    null,
-                    2
-                  )
-                }
-              ]
-            };
+            return jsonResult({ total: topics.length, success: successCount, failed: topics.length - successCount, results });
           } catch (err) {
             return fail("批量订阅失败", err);
           }

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import mysql from "mysql2/promise";
 import { createSshForwardTunnel, getSshConfigFromEnv, useSshTunnel } from "../lib/ssh-tunnel.js";
-import { assertOperationAllowed, closeTunnel, jsonResult, lazy, parseBooleanFlag } from "../lib/common.js";
+import { closeTunnel, jsonResult, lazy, parseBooleanFlag } from "../lib/common.js";
 import { requireEntries, sqlRecordSchema, toSafeIdentifier } from "../lib/sql.js";
 
 const READ_ONLY_PREFIX = /^(SELECT|SHOW|DESCRIBE|DESC|EXPLAIN)\b/i;
@@ -42,6 +42,7 @@ export default function create({ env }) {
     MYSQL_USER,
     MYSQL_PASSWORD,
     MYSQL_DATABASE,
+    MYSQL_MAX_ROWS = "500",
     MYSQL_QUERY_OPERATION = "true",
     MYSQL_INSERT_OPERATION = "true",
     MYSQL_UPDATE_OPERATION = "true",
@@ -55,6 +56,15 @@ export default function create({ env }) {
     delete: parseBooleanFlag(MYSQL_DELETE_OPERATION, true)
   };
 
+  const defaultMaxRows = parseInt(MYSQL_MAX_ROWS, 10);
+
+  // Drop a pool whose SSH tunnel died; the next tool call builds a new tunnel and pool.
+  function discard(ctx) {
+    getDb.reset();
+    ctx.pool?.end().catch(() => {});
+    closeTunnel(ctx.target);
+  }
+
   // Connection pool (and SSH tunnel) are created on first use and shared by all sessions.
   const getDb = lazy(async () => {
     if (!MYSQL_USER || !MYSQL_DATABASE) {
@@ -63,23 +73,35 @@ export default function create({ env }) {
 
     const mysqlPort = parseInt(MYSQL_PORT, 10);
     const sshConfig = getSshConfigFromEnv(env, "MYSQL");
-    let target = { host: MYSQL_HOST, port: mysqlPort };
+    const ctx = { target: { host: MYSQL_HOST, port: mysqlPort } };
 
     if (useSshTunnel(sshConfig)) {
-      target = await createSshForwardTunnel({ sshConfig, dstAddr: MYSQL_HOST, dstPort: mysqlPort });
+      ctx.target = await createSshForwardTunnel({
+        sshConfig,
+        dstAddr: MYSQL_HOST,
+        dstPort: mysqlPort,
+        onClose: () => discard(ctx)
+      });
       console.error(`✅ MySQL 已就緒（經 SSH 通道，jump hops: ${sshConfig.jumps.length}）`);
     } else {
       console.error(`✅ MySQL 已就緒（直連 ${MYSQL_HOST}:${mysqlPort}）`);
     }
 
-    const pool = mysql.createPool({
-      host: target.host,
-      port: target.port,
+    ctx.pool = mysql.createPool({
+      host: ctx.target.host,
+      port: ctx.target.port,
       user: MYSQL_USER,
       password: MYSQL_PASSWORD,
-      database: MYSQL_DATABASE
+      database: MYSQL_DATABASE,
+      connectionLimit: 5,
+      // TCP keepalive, and drop idle connections before a server / NAT timeout kills them,
+      // so a query after a quiet period doesn't land on a dead socket.
+      enableKeepAlive: true,
+      keepAliveInitialDelay: 10000,
+      maxIdle: 2,
+      idleTimeout: 60000
     });
-    return { pool, target };
+    return ctx;
   });
 
   const db = async () => (await getDb()).pool;
@@ -97,86 +119,106 @@ export default function create({ env }) {
     },
 
     register(server) {
-      server.tool(
-        "query_mysql",
-        { sql: z.string() },
-        async ({ sql }) => {
-          assertOperationAllowed("query_mysql", operationAccess.query);
-          assertReadOnlyQuery(sql);
-          const [rows] = await (await db()).query(sql);
-          return jsonResult(rows);
-        }
-      );
+      // Tools turned off with MYSQL_*_OPERATION=false are not registered at all, so they
+      // cost no context and the model never tries them.
+      if (operationAccess.query) {
+        server.tool(
+          "query_mysql",
+          "Run a read-only SQL statement (SELECT / SHOW / DESCRIBE / EXPLAIN). Returns { columns, rows, rowCount, truncated }: each row is an array in column order.",
+          {
+            sql: z.string(),
+            maxRows: z.number().int().positive().optional().describe(`Rows to return (default ${defaultMaxRows}); use LIMIT in the SQL to avoid fetching more`)
+          },
+          async ({ sql, maxRows = defaultMaxRows }) => {
+            assertReadOnlyQuery(sql);
+            // Arrays + one column list instead of one object per row: column names are
+            // not repeated on every row (roughly half the size for wide results).
+            const [rows, fields] = await (await db()).query({ sql, rowsAsArray: true });
+            if (!Array.isArray(fields)) {
+              return jsonResult(rows); // Not a result set (e.g. EXPLAIN variants returning OK packets).
+            }
+            return jsonResult({
+              columns: fields.map((f) => f.name),
+              rows: rows.slice(0, maxRows),
+              rowCount: rows.length,
+              truncated: rows.length > maxRows
+            });
+          }
+        );
+      }
 
-      server.tool(
-        "insert_mysql",
-        {
-          table: z.string(),
-          data: sqlRecordSchema
-        },
-        async ({ table, data }) => {
-          assertOperationAllowed("insert_mysql", operationAccess.insert);
-          const entries = requireEntries(data, "data");
-          const columns = entries.map(([column]) => toSafeIdentifier(column)).join(", ");
-          const placeholders = entries.map(() => "?").join(", ");
+      if (operationAccess.insert) {
+        server.tool(
+          "insert_mysql",
+          {
+            table: z.string(),
+            data: sqlRecordSchema
+          },
+          async ({ table, data }) => {
+            const entries = requireEntries(data, "data");
+            const columns = entries.map(([column]) => toSafeIdentifier(column)).join(", ");
+            const placeholders = entries.map(() => "?").join(", ");
 
-          const sql = `INSERT INTO ${toSafeIdentifier(table)} (${columns}) VALUES (${placeholders})`;
-          const [result] = await (await db()).execute(sql, entries.map(([, value]) => value));
+            const sql = `INSERT INTO ${toSafeIdentifier(table)} (${columns}) VALUES (${placeholders})`;
+            const [result] = await (await db()).execute(sql, entries.map(([, value]) => value));
 
-          return jsonResult({
-            message: "insert success",
-            affectedRows: result.affectedRows,
-            insertId: result.insertId
-          });
-        }
-      );
+            return jsonResult({
+              message: "insert success",
+              affectedRows: result.affectedRows,
+              insertId: result.insertId
+            });
+          }
+        );
+      }
 
-      server.tool(
-        "update_mysql",
-        {
-          table: z.string(),
-          data: sqlRecordSchema,
-          where: sqlRecordSchema
-        },
-        async ({ table, data, where }) => {
-          assertOperationAllowed("update_mysql", operationAccess.update);
-          const dataEntries = requireEntries(data, "data");
-          // A null placeholder value is sent as SQL NULL, so SET needs no special case.
-          const setClause = dataEntries.map(([column]) => `${toSafeIdentifier(column)} = ?`).join(", ");
-          const { clause: whereClause, params: whereParams } = buildWhereClause(where);
+      if (operationAccess.update) {
+        server.tool(
+          "update_mysql",
+          {
+            table: z.string(),
+            data: sqlRecordSchema,
+            where: sqlRecordSchema
+          },
+          async ({ table, data, where }) => {
+            const dataEntries = requireEntries(data, "data");
+            // A null placeholder value is sent as SQL NULL, so SET needs no special case.
+            const setClause = dataEntries.map(([column]) => `${toSafeIdentifier(column)} = ?`).join(", ");
+            const { clause: whereClause, params: whereParams } = buildWhereClause(where);
 
-          const sql = `UPDATE ${toSafeIdentifier(table)} SET ${setClause} WHERE ${whereClause}`;
-          const [result] = await (await db()).execute(sql, [...dataEntries.map(([, value]) => value), ...whereParams]);
+            const sql = `UPDATE ${toSafeIdentifier(table)} SET ${setClause} WHERE ${whereClause}`;
+            const [result] = await (await db()).execute(sql, [...dataEntries.map(([, value]) => value), ...whereParams]);
 
-          return jsonResult({
-            message: "update success",
-            affectedRows: result.affectedRows,
-            changedRows: result.changedRows
-          });
-        }
-      );
+            return jsonResult({
+              message: "update success",
+              affectedRows: result.affectedRows,
+              changedRows: result.changedRows
+            });
+          }
+        );
+      }
 
-      server.tool(
-        "delete_mysql",
-        {
-          table: z.string(),
-          where: sqlRecordSchema,
-          limit: z.number().int().positive().optional()
-        },
-        async ({ table, where, limit }) => {
-          assertOperationAllowed("delete_mysql", operationAccess.delete);
-          const safeTable = toSafeIdentifier(table);
-          const { clause: whereClause, params } = buildWhereClause(where);
-          const safeLimit = limit ?? 1;
-          const sql = `DELETE FROM ${safeTable} WHERE ${whereClause} LIMIT ${safeLimit}`;
-          const [result] = await (await db()).execute(sql, params);
+      if (operationAccess.delete) {
+        server.tool(
+          "delete_mysql",
+          {
+            table: z.string(),
+            where: sqlRecordSchema,
+            limit: z.number().int().positive().optional()
+          },
+          async ({ table, where, limit }) => {
+            const safeTable = toSafeIdentifier(table);
+            const { clause: whereClause, params } = buildWhereClause(where);
+            const safeLimit = limit ?? 1;
+            const sql = `DELETE FROM ${safeTable} WHERE ${whereClause} LIMIT ${safeLimit}`;
+            const [result] = await (await db()).execute(sql, params);
 
-          return jsonResult({
-            message: "delete success",
-            affectedRows: result.affectedRows
-          });
-        }
-      );
+            return jsonResult({
+              message: "delete success",
+              affectedRows: result.affectedRows
+            });
+          }
+        );
+      }
     }
   };
 }

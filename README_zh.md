@@ -50,6 +50,12 @@ set ENV_FILE=.env.beta && node servers/mysql.js
 - `SSH_JUMPS`（全域跳板）
 - `MYSQL_SSH_JUMPS`、`MONGO_SSH_JUMPS`、`TDENGINE_SSH_JUMPS`、`KAFKA_SSH_JUMPS`（服務專用）
 
+SSH tunnel 每 30 秒送 keepalive；tunnel 斷線（例如 NAT 閒置逾時）時會丟掉對應的連線池 / client，下一次呼叫 tool 自動重連，不需重啟 gateway。
+
+`MYSQL_*_OPERATION`、`MONGO_*_OPERATION`、`TDENGINE_*_OPERATION=false` 的工具不會註冊，client 完全看不到（唯讀 instance 只會出現查詢工具）。
+
+工具結果為不縮排的 JSON。`query_mysql` 回傳 `{ columns, rows, rowCount, truncated }`（每列為陣列，最多 `maxRows` 筆，預設 `MYSQL_MAX_ROWS` = 500）。`query_mongo` 可帶 `projection`、`sort`、`limit`（預設 50，上限 500）。
+
 ## 工具清單
 
 ### `servers/hello.js`

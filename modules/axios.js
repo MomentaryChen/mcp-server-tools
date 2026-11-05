@@ -21,6 +21,19 @@ function parseBody(body) {
   }
 }
 
+// POST takes headers as a JSON string; a non-JSON or empty string means no headers.
+function parseHeaders(headers) {
+  if (typeof headers !== "string") {
+    return headers || {};
+  }
+  try {
+    const parsed = JSON.parse(headers);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 export default function create() {
   return {
     info: { name: "axios-tools", version: "1.0.0" },
@@ -44,22 +57,7 @@ export default function create() {
           body: z.string(),
           headers: z.string()
         },
-        async ({ url, body, headers }) => {
-          const parsedBody = parseBody(body);
-          const debugInfo = {
-            receivedBody: body,
-            bodyType: typeof body,
-            parsedBody,
-            parsedBodyType: typeof parsedBody
-          };
-
-          const result = await apiRequest("post", url, parsedBody, headers);
-          return asText({
-            ...result,
-            debug: debugInfo,
-            request: { url, body: parsedBody, headers }
-          });
-        }
+        async ({ url, body, headers }) => asText(await apiRequest("post", url, parseBody(body), parseHeaders(headers)))
       );
 
       // PUT / UPDATE

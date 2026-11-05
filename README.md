@@ -50,6 +50,12 @@ The project supports optional SSH jump tunnels for MySQL, MongoDB, TDengine, and
 - `SSH_JUMPS` (global jumps)
 - `MYSQL_SSH_JUMPS`, `MONGO_SSH_JUMPS`, `TDENGINE_SSH_JUMPS`, `KAFKA_SSH_JUMPS` (service-specific jumps)
 
+SSH tunnels send a keepalive every 30 s. When a tunnel drops (e.g. a NAT idle timeout), its pool / client is discarded and the next tool call reconnects; no gateway restart is needed.
+
+Tools disabled with `MYSQL_*_OPERATION`, `MONGO_*_OPERATION` or `TDENGINE_*_OPERATION=false` are not registered, so clients never see them (a read-only instance only exposes its query tools).
+
+Tool results are compact JSON. `query_mysql` returns `{ columns, rows, rowCount, truncated }` (rows as arrays, at most `maxRows`, default `MYSQL_MAX_ROWS` = 500). `query_mongo` accepts `projection`, `sort` and `limit` (default 50, max 500).
+
 ## Tool Matrix
 
 ### `servers/hello.js`
