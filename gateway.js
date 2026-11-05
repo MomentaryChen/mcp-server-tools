@@ -33,11 +33,15 @@ try {
   // No log file yet.
 }
 const logStream = fs.createWriteStream(logFile, { flags: "a" });
+// Modules log everything via console.error (stdout is reserved in stdio mode),
+// so label by content: only real failures are written as [error].
+const ERROR_PATTERN = /❌|error|fail|exception|refused|timeout|失敗|錯誤|逾時/i;
 for (const level of ["log", "info", "warn", "error"]) {
   const original = console[level].bind(console);
   console[level] = (...args) => {
     const line = args.map((a) => (typeof a === "string" ? a : a instanceof Error ? a.stack : JSON.stringify(a))).join(" ");
-    logStream.write(`${new Date().toISOString()} [${level}] ${line}\n`);
+    const label = level === "error" && !ERROR_PATTERN.test(line) ? "info" : level;
+    logStream.write(`${new Date().toISOString()} [${label}] ${line}\n`);
     original(...args);
   };
 }
@@ -54,7 +58,12 @@ if (!fs.existsSync(configPath)) {
 const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
 const host = process.env.GATEWAY_HOST || config.host || "127.0.0.1";
 const port = parseInt(process.env.GATEWAY_PORT || config.port || 3800, 10);
-const sessionIdleMs = (config.sessionIdleHours ?? 168) * 3600 * 1000;
+// A session with an open HTTP stream (the client's GET event stream, or a request
+// still running) is alive. After its last stream closes and it stays idle this long,
+// it is removed; a client that comes back gets 404 and re-initializes (MCP spec).
+const sessionIdleMinutes =
+  config.sessionIdleMinutes ?? (config.sessionIdleHours != null ? config.sessionIdleHours * 60 : 30);
+const sessionIdleMs = sessionIdleMinutes * 60 * 1000;
 
 // name -> { name, module, mod?, error? }
 const instances = new Map();
@@ -80,25 +89,26 @@ for (const [name, spec] of Object.entries(config.instances || {})) {
 }
 
 // ---------------------------------------------------------------- sessions
-// sessionId -> { instance, transport, server, lastSeen }
+// sessionId -> { instance, client, transport, server, lastSeen, openStreams }
 const sessions = new Map();
 
-async function createSession(instance) {
+async function createSession(instance, client) {
   const server = new McpServer(instance.mod.info);
   instance.mod.register(server);
 
-  const session = { instance: instance.name, server, lastSeen: Date.now() };
+  const session = { instance: instance.name, client, server, lastSeen: Date.now(), openStreams: 0 };
   session.transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: () => randomUUID(),
     onsessioninitialized: (sessionId) => {
       sessions.set(sessionId, session);
-      console.error(`➕ session ${sessionId} -> ${instance.name}（共 ${sessions.size}）`);
+      console.error(`➕ session ${sessionId} -> ${instance.name} [${client}]（共 ${sessions.size}）`);
     }
   });
   session.transport.onclose = () => {
     const sessionId = session.transport.sessionId;
     if (sessionId && sessions.delete(sessionId)) {
-      console.error(`➖ session ${sessionId} -> ${instance.name}（共 ${sessions.size}）`);
+      const reason = session.closeReason || "closed by client";
+      console.error(`➖ session ${sessionId} -> ${instance.name} [${client}] ${reason}（共 ${sessions.size}）`);
     }
   };
 
@@ -106,15 +116,16 @@ async function createSession(instance) {
   return session;
 }
 
-setInterval(() => {
+function reapIdleSessions() {
   const now = Date.now();
-  for (const [sessionId, session] of sessions) {
-    if (now - session.lastSeen > sessionIdleMs) {
+  for (const session of sessions.values()) {
+    if (session.openStreams === 0 && now - session.lastSeen > sessionIdleMs) {
+      session.closeReason = `idle ${Math.round((now - session.lastSeen) / 60000)} min`;
       session.transport.close().catch(() => {});
-      sessions.delete(sessionId);
     }
   }
-}, 10 * 60 * 1000).unref();
+}
+setInterval(reapIdleSessions, 60 * 1000).unref();
 
 // ---------------------------------------------------------------- http
 function sendJson(res, status, body) {
@@ -155,12 +166,21 @@ function readJsonBody(req) {
 // Only accept local Host headers (DNS rebinding protection).
 const allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`]);
 
+function countBy(items, key) {
+  const counts = {};
+  for (const item of items) counts[key(item)] = (counts[key(item)] || 0) + 1;
+  return counts;
+}
+
 function status() {
   return {
     ok: true,
     pid: process.pid,
     uptimeSec: Math.round(process.uptime()),
     sessions: sessions.size,
+    connectedSessions: [...sessions.values()].filter((s) => s.openStreams > 0).length,
+    sessionIdleMinutes,
+    clients: countBy([...sessions.values()], (s) => s.client),
     instances: [...instances.values()].map((i) => ({
       name: i.name,
       module: i.module,
@@ -209,7 +229,7 @@ async function handle(req, res) {
   if (!session) {
     const isInit = Array.isArray(body) ? body.some(isInitializeRequest) : isInitializeRequest(body);
     if (req.method === "POST" && !sessionId && isInit) {
-      session = await createSession(instance);
+      session = await createSession(instance, String(req.headers["user-agent"] || "unknown").slice(0, 60));
     } else if (sessionId) {
       // Per the MCP spec, 404 tells the client to start a new session.
       return rpcError(res, 404, -32001, "Session not found");
@@ -219,6 +239,11 @@ async function handle(req, res) {
   }
 
   session.lastSeen = Date.now();
+  session.openStreams++;
+  res.on("close", () => {
+    session.openStreams--;
+    session.lastSeen = Date.now();
+  });
   await session.transport.handleRequest(req, res, body);
 }
 

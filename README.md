@@ -259,6 +259,7 @@ Claude CLI #3 ─HTTP─┘
 ```
 
 - Each client gets its own MCP session; DB pools, SSH tunnels and broker connections are created once per instance, on its first tool call, and shared.
+- A session stays alive while its client holds an open stream; once the client disconnects and stays idle for `sessionIdleMinutes` (default 30) it is removed. A returning client gets 404 and re-initializes automatically.
 - Binds to `127.0.0.1` only and rejects non-local `Host` headers.
 - MQTT / Kafka instances share one connection, subscription list and message buffer across all sessions.
 - Logs: `logs/gateway.log`. Status: `http://127.0.0.1:3800/health`.

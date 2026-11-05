@@ -259,6 +259,7 @@ Claude CLI #3 ─HTTP─┘
 ```
 
 - 每個 client 有自己的 MCP session；DB 連線池、SSH tunnel、broker 連線每個 instance 只建一次（第一次呼叫 tool 時才建），大家共用。
+- Client 保持連線時 session 不會被清；client 斷線後閒置超過 `sessionIdleMinutes`（預設 30 分鐘）就回收。之後 client 再回來會收到 404 並自動重新建立 session。
 - 只綁 `127.0.0.1`，並拒絕非本機的 `Host` header。
 - MQTT / Kafka instance 的連線、訂閱清單與訊息暫存由所有 session 共用。
 - Log：`logs/gateway.log`。狀態：`http://127.0.0.1:3800/health`。
