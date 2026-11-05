@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { createSshForwardTunnel, getSshConfigFromEnv, useSshTunnel } from "../lib/ssh-tunnel.js";
-import { assertOperationAllowed, closeTunnel, errorResult, jsonResult, lazy, parseBooleanFlag } from "../lib/common.js";
+import { closeTunnel, errorResult, jsonResult, lazy, parseBooleanFlag } from "../lib/common.js";
 import { requireEntries, sqlRecordSchema, toSafeIdentifier } from "../lib/sql.js";
 
 function toSqlLiteral(value) {
@@ -66,7 +66,16 @@ export default function create({ env }) {
     let target = { host: TDENGINE_HOST, port: tdenginePort };
 
     if (useSshTunnel(sshConfig)) {
-      target = await createSshForwardTunnel({ sshConfig, dstAddr: TDENGINE_HOST, dstPort: tdenginePort });
+      target = await createSshForwardTunnel({
+        sshConfig,
+        dstAddr: TDENGINE_HOST,
+        dstPort: tdenginePort,
+        // Tunnel died: forget the endpoint so the next query builds a new tunnel.
+        onClose: () => {
+          getEndpoint.reset();
+          closeTunnel(target);
+        }
+      });
       console.error(`✅ TDengine 已就緒（經 SSH 通道，jump hops: ${sshConfig.jumps.length}）`);
     } else {
       console.error(`✅ TDengine 已就緒（直連 ${TDENGINE_HOST}:${tdenginePort}）`);
@@ -109,57 +118,61 @@ export default function create({ env }) {
     },
 
     register(server) {
-      server.tool(
-        "query_tdengine",
-        { sql: z.string() },
-        handle(async ({ sql }) => {
-          assertOperationAllowed("query_tdengine", operationAccess.query);
-          return queryTDengine(sql);
-        })
-      );
+      // Tools turned off with TDENGINE_*_OPERATION=false are not registered at all, so they
+      // cost no context and the model never tries them.
+      if (operationAccess.query) {
+        server.tool(
+          "query_tdengine",
+          { sql: z.string() },
+          handle(({ sql }) => queryTDengine(sql))
+        );
+      }
 
-      server.tool(
-        "insert_tdengine",
-        {
-          table: z.string(),
-          data: sqlRecordSchema
-        },
-        handle(async ({ table, data }) => {
-          assertOperationAllowed("insert_tdengine", operationAccess.insert);
-          const entries = requireEntries(data, "data");
-          const columns = entries.map(([column]) => toSafeIdentifier(column)).join(", ");
-          const values = entries.map(([, value]) => toSqlLiteral(value)).join(", ");
-          return queryTDengine(`INSERT INTO ${toSafeIdentifier(table)} (${columns}) VALUES (${values})`);
-        })
-      );
+      if (operationAccess.insert) {
+        server.tool(
+          "insert_tdengine",
+          {
+            table: z.string(),
+            data: sqlRecordSchema
+          },
+          handle(async ({ table, data }) => {
+            const entries = requireEntries(data, "data");
+            const columns = entries.map(([column]) => toSafeIdentifier(column)).join(", ");
+            const values = entries.map(([, value]) => toSqlLiteral(value)).join(", ");
+            return queryTDengine(`INSERT INTO ${toSafeIdentifier(table)} (${columns}) VALUES (${values})`);
+          })
+        );
+      }
 
-      server.tool(
-        "update_tdengine",
-        {
-          table: z.string(),
-          data: sqlRecordSchema,
-          where: sqlRecordSchema
-        },
-        handle(async ({ table, data, where }) => {
-          assertOperationAllowed("update_tdengine", operationAccess.update);
-          const setClause = requireEntries(data, "data")
-            .map(([column, value]) => `${toSafeIdentifier(column)} = ${toSqlLiteral(value)}`)
-            .join(", ");
-          return queryTDengine(`UPDATE ${toSafeIdentifier(table)} SET ${setClause} WHERE ${buildWhereClause(where)}`);
-        })
-      );
+      if (operationAccess.update) {
+        server.tool(
+          "update_tdengine",
+          {
+            table: z.string(),
+            data: sqlRecordSchema,
+            where: sqlRecordSchema
+          },
+          handle(async ({ table, data, where }) => {
+            const setClause = requireEntries(data, "data")
+              .map(([column, value]) => `${toSafeIdentifier(column)} = ${toSqlLiteral(value)}`)
+              .join(", ");
+            return queryTDengine(`UPDATE ${toSafeIdentifier(table)} SET ${setClause} WHERE ${buildWhereClause(where)}`);
+          })
+        );
+      }
 
-      server.tool(
-        "delete_tdengine",
-        {
-          table: z.string(),
-          where: sqlRecordSchema
-        },
-        handle(async ({ table, where }) => {
-          assertOperationAllowed("delete_tdengine", operationAccess.delete);
-          return queryTDengine(`DELETE FROM ${toSafeIdentifier(table)} WHERE ${buildWhereClause(where)}`);
-        })
-      );
+      if (operationAccess.delete) {
+        server.tool(
+          "delete_tdengine",
+          {
+            table: z.string(),
+            where: sqlRecordSchema
+          },
+          handle(async ({ table, where }) => {
+            return queryTDengine(`DELETE FROM ${toSafeIdentifier(table)} WHERE ${buildWhereClause(where)}`);
+          })
+        );
+      }
     }
   };
 }

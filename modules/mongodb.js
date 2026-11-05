@@ -1,9 +1,10 @@
 import { z } from "zod";
-import pkg from "mongodb";
+import { MongoClient } from "mongodb";
 import { createSshForwardTunnel, getSshConfigFromEnv, useSshTunnel } from "../lib/ssh-tunnel.js";
-import { assertOperationAllowed, closeTunnel, lazy, parseBooleanFlag } from "../lib/common.js";
+import { closeTunnel, errorResult, jsonResult, lazy, parseBooleanFlag, textResult } from "../lib/common.js";
 
-const { MongoClient } = pkg;
+const DEFAULT_QUERY_LIMIT = 50;
+const MAX_QUERY_LIMIT = 500;
 
 export default function create({ env }) {
   const {
@@ -41,7 +42,21 @@ export default function create({ env }) {
     if (MONGO_AUTH_MECHANISM?.trim()) {
       options.authMechanism = MONGO_AUTH_MECHANISM;
     }
-    return new MongoClient(`mongodb://${host}:${port}`, options);
+    // directConnection: through an SSH tunnel the client must talk to this one host and not
+    // switch to replica-set member addresses that are unreachable from here.
+    return new MongoClient(`mongodb://${host}:${port}`, {
+      ...options,
+      directConnection: true,
+      serverSelectionTimeoutMS: 15000,
+      maxPoolSize: 5
+    });
+  }
+
+  // Drop a client whose SSH tunnel died; the next tool call builds a new tunnel and client.
+  function discard(ctx) {
+    getClient.reset();
+    ctx.client?.close().catch(() => {});
+    closeTunnel(ctx.target);
   }
 
   // Client (and SSH tunnel) are created on first use and shared by all sessions.
@@ -52,22 +67,28 @@ export default function create({ env }) {
     }
 
     const sshConfig = getSshConfigFromEnv(env, "MONGO");
-    let target = { host: MONGO_HOST, port: mongoPort };
+    const ctx = { target: { host: MONGO_HOST, port: mongoPort } };
 
     if (useSshTunnel(sshConfig)) {
-      target = await createSshForwardTunnel({ sshConfig, dstAddr: MONGO_HOST, dstPort: mongoPort });
+      ctx.target = await createSshForwardTunnel({
+        sshConfig,
+        dstAddr: MONGO_HOST,
+        dstPort: mongoPort,
+        onClose: () => discard(ctx)
+      });
       console.error(`✅ 已建立 Mongo SSH 通道（jump hops: ${sshConfig.jumps.length} -> ${MONGO_HOST}:${mongoPort}）`);
     }
 
-    const client = buildMongoClient(target.host, target.port);
+    ctx.client = buildMongoClient(ctx.target.host, ctx.target.port);
     try {
-      await client.connect();
+      await ctx.client.connect();
     } catch (err) {
-      closeTunnel(target);
+      await ctx.client.close().catch(() => {});
+      closeTunnel(ctx.target);
       throw err;
     }
     console.error(`✅ MongoDB 已就緒（database: ${MONGO_DATABASE}）`);
-    return { client, target };
+    return ctx;
   });
 
   const dbFor = async (database) => (await getClient()).client.db(database || MONGO_DATABASE);
@@ -85,99 +106,101 @@ export default function create({ env }) {
     },
 
     register(server) {
-      // Tool 1: Query (optional database, defaults to MONGO_DATABASE).
-      server.tool(
-        "query_mongo",
-        {
-          collection: z.string(),
-          query: z.any().optional(),
-          database: z.string().optional()
-        },
-        async ({ collection, query, database }) => {
-          try {
-            assertOperationAllowed("query_mongo", operationAccess.query);
-            const coll = (await dbFor(database)).collection(collection);
-            const result = await coll.find(query || {}).limit(50).toArray();
-            return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-          } catch (err) {
-            return { content: [{ type: "text", text: `查詢失敗: ${err.message}` }] };
+      // Tools turned off with MONGO_*_OPERATION=false are not registered at all, so they
+      // cost no context and the model never tries them.
+      if (operationAccess.query) {
+        server.tool(
+          "query_mongo",
+          "Find documents. Use projection to return only the fields you need.",
+          {
+            collection: z.string(),
+            query: z.any().optional(),
+            projection: z.record(z.string(), z.any()).optional().describe("e.g. { name: 1, status: 1, _id: 0 }"),
+            sort: z.record(z.string(), z.any()).optional().describe("e.g. { createdAt: -1 }"),
+            limit: z.number().int().min(1).max(MAX_QUERY_LIMIT).optional().describe(`default ${DEFAULT_QUERY_LIMIT}`),
+            database: z.string().optional()
+          },
+          async ({ collection, query, projection, sort, limit = DEFAULT_QUERY_LIMIT, database }) => {
+            try {
+              let cursor = (await dbFor(database)).collection(collection).find(query || {}, { projection });
+              if (sort) cursor = cursor.sort(sort);
+              return jsonResult(await cursor.limit(limit).toArray());
+            } catch (err) {
+              return errorResult(`查詢失敗: ${err.message}`);
+            }
           }
-        }
-      );
+        );
+      }
 
-      // Tool 2: Insert.
-      server.tool(
-        "mongo_insert",
-        {
-          collection: z.string(),
-          document: z.any()
-        },
-        async ({ collection, document }) => {
-          try {
-            assertOperationAllowed("mongo_insert", operationAccess.insert);
-            const coll = (await dbFor()).collection(collection);
-            const result = await coll.insertOne(document);
-            return { content: [{ type: "text", text: `插入成功, id: ${result.insertedId}` }] };
-          } catch (err) {
-            return { content: [{ type: "text", text: `插入失敗: ${err.message}` }] };
+      if (operationAccess.insert) {
+        server.tool(
+          "mongo_insert",
+          {
+            collection: z.string(),
+            document: z.any()
+          },
+          async ({ collection, document }) => {
+            try {
+              const result = await (await dbFor()).collection(collection).insertOne(document);
+              return textResult(`插入成功, id: ${result.insertedId}`);
+            } catch (err) {
+              return errorResult(`插入失敗: ${err.message}`);
+            }
           }
-        }
-      );
+        );
+      }
 
-      // Tool 3: Update.
-      server.tool(
-        "mongo_update",
-        {
-          collection: z.string(),
-          filter: z.any(),
-          update: z.any()
-        },
-        async ({ collection, filter, update }) => {
-          try {
-            assertOperationAllowed("mongo_update", operationAccess.update);
-            const coll = (await dbFor()).collection(collection);
-            const result = await coll.updateMany(filter, { $set: update });
-            return { content: [{ type: "text", text: `更新成功, matched: ${result.matchedCount}, modified: ${result.modifiedCount}` }] };
-          } catch (err) {
-            return { content: [{ type: "text", text: `更新失敗: ${err.message}` }] };
+      if (operationAccess.update) {
+        server.tool(
+          "mongo_update",
+          {
+            collection: z.string(),
+            filter: z.any(),
+            update: z.any()
+          },
+          async ({ collection, filter, update }) => {
+            try {
+              const result = await (await dbFor()).collection(collection).updateMany(filter, { $set: update });
+              return textResult(`更新成功, matched: ${result.matchedCount}, modified: ${result.modifiedCount}`);
+            } catch (err) {
+              return errorResult(`更新失敗: ${err.message}`);
+            }
           }
-        }
-      );
+        );
+      }
 
-      // Tool 4: Delete.
-      server.tool(
-        "mongo_delete",
-        {
-          collection: z.string(),
-          filter: z.any()
-        },
-        async ({ collection, filter }) => {
-          try {
-            assertOperationAllowed("mongo_delete", operationAccess.delete);
-            const coll = (await dbFor()).collection(collection);
-            const result = await coll.deleteMany(filter);
-            return { content: [{ type: "text", text: `刪除成功, deleted: ${result.deletedCount}` }] };
-          } catch (err) {
-            return { content: [{ type: "text", text: `刪除失敗: ${err.message}` }] };
+      if (operationAccess.delete) {
+        server.tool(
+          "mongo_delete",
+          {
+            collection: z.string(),
+            filter: z.any()
+          },
+          async ({ collection, filter }) => {
+            try {
+              const result = await (await dbFor()).collection(collection).deleteMany(filter);
+              return textResult(`刪除成功, deleted: ${result.deletedCount}`);
+            } catch (err) {
+              return errorResult(`刪除失敗: ${err.message}`);
+            }
           }
-        }
-      );
+        );
+      }
 
-      // Tool 5: List all collections (optional database, defaults to MONGO_DATABASE).
-      server.tool(
-        "list_mongo_collections",
-        { database: z.string().optional() },
-        async ({ database }) => {
-          try {
-            assertOperationAllowed("list_mongo_collections", operationAccess.listCollections);
-            const collections = await (await dbFor(database)).listCollections().toArray();
-            const collectionNames = collections.map((col) => col.name);
-            return { content: [{ type: "text", text: JSON.stringify(collectionNames, null, 2) }] };
-          } catch (err) {
-            return { content: [{ type: "text", text: `查詢失敗: ${err.message}` }] };
+      if (operationAccess.listCollections) {
+        server.tool(
+          "list_mongo_collections",
+          { database: z.string().optional() },
+          async ({ database }) => {
+            try {
+              const collections = await (await dbFor(database)).listCollections({}, { nameOnly: true }).toArray();
+              return jsonResult(collections.map((col) => col.name));
+            } catch (err) {
+              return errorResult(`查詢失敗: ${err.message}`);
+            }
           }
-        }
-      );
+        );
+      }
     }
   };
 }

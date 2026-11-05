@@ -15,7 +15,7 @@ export default function create() {
             const content = await fs.readFile(path, "utf-8");
             return { content: [{ type: "text", text: content }] };
           } catch (err) {
-            return { content: [{ type: "text", text: `讀取失敗: ${err.message}` }] };
+            return { content: [{ type: "text", text: `讀取失敗: ${err.message}` }], isError: true };
           }
         }
       );
