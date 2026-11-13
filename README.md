@@ -20,7 +20,7 @@ This repository provides MCP servers you can plug into Cursor or any MCP-compati
 
 ## Requirements
 
-- Node.js `18+`
+- Node.js `20+`
 - npm
 - `servers/outlook.js` only: Windows with classic Outlook (Microsoft 365 / Office 16) and the mailbox account configured
 
