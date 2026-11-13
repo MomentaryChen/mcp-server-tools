@@ -36,6 +36,71 @@ export function assertReadOnlyQuery(sql) {
   }
 }
 
+// Run a query on a pooled connection and stop reading once maxRows + 1 rows have arrived,
+// instead of buffering the whole result set like pool.query() does. Resolves to
+// { fields, rows, truncated } for a result set, or { okPacket } for a non-result-set reply.
+// mysql2 cannot cancel a running query, so a truncated read destroys the connection (the
+// pool replaces it); otherwise the connection is released back to the pool.
+function queryLimited(corePool, sql, maxRows) {
+  return new Promise((resolve, reject) => {
+    corePool.getConnection((connErr, conn) => {
+      if (connErr) {
+        reject(connErr);
+        return;
+      }
+
+      let settled = false;
+      let fields;
+      let okPacket;
+      const rows = [];
+
+      const onConnError = (err) => finish(reject, err, true);
+      const finish = (settle, value, destroy = false) => {
+        if (settled) return;
+        settled = true;
+        conn.removeListener("error", onConnError);
+        if (destroy) {
+          conn.destroy();
+          conn.stream?.destroy(); // Hard-close the socket so the server stops sending rows.
+        } else {
+          conn.release();
+        }
+        settle(value);
+      };
+
+      // A fatal connection error is reported on the connection, not on a callback-less query.
+      conn.once("error", onConnError);
+
+      let query;
+      try {
+        query = conn.query({ sql, rowsAsArray: true });
+      } catch (err) {
+        finish(reject, err);
+        return;
+      }
+
+      query.on("fields", (f) => {
+        fields = f;
+      });
+      query.on("result", (row) => {
+        if (settled) return;
+        if (!fields) {
+          okPacket = row; // Not a result set (e.g. OK packet).
+          return;
+        }
+        rows.push(row);
+        if (rows.length > maxRows) {
+          finish(resolve, { fields, rows: rows.slice(0, maxRows), truncated: true }, true);
+        }
+      });
+      query.on("error", (err) => finish(reject, err));
+      query.on("end", () =>
+        finish(resolve, fields ? { fields, rows, truncated: false } : { okPacket })
+      );
+    });
+  });
+}
+
 export default function create({ env }) {
   const {
     MYSQL_HOST = "127.0.0.1",
@@ -149,7 +214,7 @@ export default function create({ env }) {
       if (operationAccess.query) {
         server.tool(
           "query_mysql",
-          "Run a read-only SQL statement (SELECT / SHOW / DESCRIBE / EXPLAIN). Returns { columns, rows, rowCount, truncated }: each row is an array in column order.",
+          "Run a read-only SQL statement (SELECT / SHOW / DESCRIBE / EXPLAIN). Returns { columns, rows, rowCount, truncated }: each row is an array in column order. Reading stops after maxRows rows; rowCount is the number of rows returned and truncated: true means more rows exist.",
           {
             sql: z.string(),
             maxRows: z.number().int().positive().optional().describe(`Rows to return (default ${defaultMaxRows}); use LIMIT in the SQL to avoid fetching more`)
@@ -158,15 +223,16 @@ export default function create({ env }) {
             assertReadOnlyQuery(sql);
             // Arrays + one column list instead of one object per row: column names are
             // not repeated on every row (roughly half the size for wide results).
-            const [rows, fields] = await (await db()).query({ sql, rowsAsArray: true });
-            if (!Array.isArray(fields)) {
-              return jsonResult(rows); // Not a result set (e.g. EXPLAIN variants returning OK packets).
+            // Streams rows and stops after maxRows + 1, so a huge result is never buffered.
+            const result = await queryLimited((await db()).pool, sql, maxRows);
+            if (!result.fields) {
+              return jsonResult(result.okPacket); // Not a result set (e.g. EXPLAIN variants returning OK packets).
             }
             return jsonResult({
-              columns: fields.map((f) => f.name),
-              rows: rows.slice(0, maxRows),
-              rowCount: rows.length,
-              truncated: rows.length > maxRows
+              columns: result.fields.map((f) => f.name),
+              rows: result.rows,
+              rowCount: result.rows.length,
+              truncated: result.truncated
             });
           }
         );
@@ -204,6 +270,7 @@ export default function create({ env }) {
       if (operationAccess.update) {
         server.tool(
           "update_mysql",
+          "Run UPDATE table SET data WHERE where (all where columns ANDed with =, null means IS NULL; where must be non-empty). Returns affectedRows and changedRows.",
           {
             table: z.string(),
             data: sqlRecordSchema,
@@ -230,6 +297,7 @@ export default function create({ env }) {
       if (operationAccess.delete) {
         server.tool(
           "delete_mysql",
+          "Run DELETE FROM table WHERE where LIMIT limit (where columns ANDed with =, null means IS NULL; where must be non-empty; limit defaults to 1 row).",
           {
             table: z.string(),
             where: sqlRecordSchema,

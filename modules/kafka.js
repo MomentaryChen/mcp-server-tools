@@ -2,9 +2,12 @@ import net from "net";
 import { Kafka, logLevel } from "kafkajs";
 import { z } from "zod";
 import { createSshForwardTunnel, getSshConfigFromEnv, useSshTunnel } from "../lib/ssh-tunnel.js";
-import { RingBuffer, closeTunnel, jsonResult, lazy, parseBooleanFlag } from "../lib/common.js";
+import { RingBuffer, closeTunnel, jsonResult, lazy, parseBooleanFlag, truncateField } from "../lib/common.js";
 
 const maxMessages = 10000;
+// kafka_get_messages caps: messages per call, and characters per message value.
+const MAX_GET_LIMIT = 500;
+const MAX_VALUE_CHARS = 4000;
 
 function normalizeBroker(broker) {
   const trimmed = broker.trim();
@@ -327,6 +330,7 @@ export default function create({ env, argv = [] }) {
     register(server) {
       server.tool(
         "kafka_status",
+        "Show Kafka connection state, brokers, subscribed topics and the number of buffered messages.",
         {},
         async () => {
           const resolution = getCtx.current()?.resolution;
@@ -347,6 +351,7 @@ export default function create({ env, argv = [] }) {
 
       server.tool(
         "kafka_publish",
+        "Send one message (string value, optional key / headers / partition) to a Kafka topic.",
         {
           topic: z.string(),
           message: z.string(),
@@ -373,6 +378,7 @@ export default function create({ env, argv = [] }) {
 
       server.tool(
         "kafka_subscribe",
+        "Add a topic to the consumer subscription; received messages are buffered in memory for kafka_get_messages.",
         {
           topic: z.string(),
           fromBeginning: z.boolean().optional()
@@ -418,8 +424,9 @@ export default function create({ env, argv = [] }) {
 
       server.tool(
         "kafka_get_messages",
+        `Return the newest buffered messages (oldest first), optionally filtered by topic / partition. Values longer than ${MAX_VALUE_CHARS} chars are cut and flagged valueTruncated: true.`,
         {
-          limit: z.number().optional(),
+          limit: z.number().int().min(1).max(MAX_GET_LIMIT).optional().describe(`Messages to return (default 10, max ${MAX_GET_LIMIT})`),
           topic: z.string().optional(),
           partition: z.number().optional()
         },
@@ -430,12 +437,13 @@ export default function create({ env, argv = [] }) {
             filtered &&
               ((m) => (topic === undefined || m.topic === topic) && (partition === undefined || m.partition === partition))
           );
-          return jsonResult(messages);
+          return jsonResult(messages.map((m) => truncateField(m, "value", MAX_VALUE_CHARS)));
         }
       );
 
       server.tool(
         "kafka_clear_messages",
+        "Clear the in-memory buffer of received Kafka messages.",
         {},
         async () => {
           const count = messageStore.clear();

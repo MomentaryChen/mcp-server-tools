@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { apiRequest } from "../lib/http.js";
-import { jsonResult as asText } from "../lib/common.js";
+import { DEFAULT_MAX_RESPONSE_CHARS, apiRequest, capResponseData } from "../lib/http.js";
+import { jsonResult, positiveInt } from "../lib/common.js";
 
 // Accept a JSON string or object body; fall back to { data: <string> } when not JSON.
 function parseBody(body) {
@@ -39,7 +39,11 @@ function parseHeaders(headers) {
 const headersSchema = z.union([z.string(), z.record(z.string(), z.any())]).optional();
 const bodySchema = z.union([z.string(), z.record(z.string(), z.any()), z.array(z.any())]).optional();
 
-export default function create() {
+export default function create({ env = {} } = {}) {
+  // Response bodies are cut at HTTP_MAX_RESPONSE_CHARS characters (flagged dataTruncated: true).
+  const maxResponseChars = positiveInt(env.HTTP_MAX_RESPONSE_CHARS, DEFAULT_MAX_RESPONSE_CHARS);
+  const asText = (result) => jsonResult(capResponseData(result, maxResponseChars));
+
   return {
     info: { name: "axios-tools", version: "1.0.0" },
 
@@ -47,6 +51,7 @@ export default function create() {
       // GET
       server.tool(
         "call_api_get",
+        "Send an HTTP GET request. Returns { success, status, data }; a body over the size limit is cut to a string and flagged dataTruncated: true.",
         {
           url: z.string(),
           headers: headersSchema
@@ -57,6 +62,7 @@ export default function create() {
       // POST
       server.tool(
         "call_api_post",
+        "Send an HTTP POST request with a JSON body. Returns { success, status, data }.",
         {
           url: z.string(),
           body: bodySchema,
@@ -68,6 +74,7 @@ export default function create() {
       // PUT / UPDATE
       server.tool(
         "call_api_put",
+        "Send an HTTP PUT request with an optional JSON body. Returns { success, status, data }.",
         {
           url: z.string(),
           body: bodySchema,
@@ -79,6 +86,7 @@ export default function create() {
       // DELETE
       server.tool(
         "call_api_delete",
+        "Send an HTTP DELETE request. Returns { success, status, data }.",
         {
           url: z.string(),
           headers: headersSchema

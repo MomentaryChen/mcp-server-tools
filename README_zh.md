@@ -54,7 +54,7 @@ SSH tunnel 每 30 秒送 keepalive；tunnel 斷線（例如 NAT 閒置逾時）�
 
 `MYSQL_*_OPERATION`、`MONGO_*_OPERATION`、`TDENGINE_*_OPERATION=false` 的工具不會註冊，client 完全看不到（唯讀 instance 只會出現查詢工具）。
 
-工具結果為不縮排的 JSON。`query_mysql` 回傳 `{ columns, rows, rowCount, truncated }`（每列為陣列，最多 `maxRows` 筆，預設 `MYSQL_MAX_ROWS` = 500）。`query_mongo` 可帶 `projection`、`sort`、`limit`（預設 50，上限 500）。
+工具結果為不縮排的 JSON。`query_mysql` 回傳 `{ columns, rows, rowCount, truncated }`（每列為陣列，最多 `maxRows` 筆，預設 `MYSQL_MAX_ROWS` = 500）。`query_mongo` 可帶 `projection`、`sort`、`limit`（預設 50，上限 500）。`query_mysql` 讀到 `maxRows` 筆即停止，因此 `rowCount` 為實際回傳筆數。`query_tdengine` 回傳相同格式（預設 `TDENGINE_MAX_ROWS` = 500；`rowCount` 為結果總筆數）。`kafka_get_messages` / `mqtt_get_messages` 的 `limit` 上限 500，超過 4000 字元的內容會截斷（`valueTruncated` / `messageTruncated`）；HTTP 回應 body 超過 `HTTP_MAX_RESPONSE_CHARS`（預設 100000）會截斷（`dataTruncated`）；`readFile` 最多讀 `maxBytes`（預設 200000）bytes。
 
 ## 工具清單
 

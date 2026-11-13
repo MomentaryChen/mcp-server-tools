@@ -1,9 +1,12 @@
 import { z } from "zod";
 import mqtt from "mqtt";
 import fs from "fs";
-import { RingBuffer, errorResult, jsonResult, lazy, parseBooleanFlag, textResult } from "../lib/common.js";
+import { RingBuffer, errorResult, jsonResult, lazy, parseBooleanFlag, textResult, truncateField } from "../lib/common.js";
 
 const maxMessages = 10000;
+// mqtt_get_messages caps: messages per call, and characters per message payload.
+const MAX_GET_LIMIT = 500;
+const MAX_PAYLOAD_CHARS = 4000;
 
 const splitTopics = (value) => value.split(",").map((t) => t.trim()).filter(Boolean);
 
@@ -228,6 +231,7 @@ export default function create({ env = {}, argv = [] }) {
     register(server) {
       server.tool(
         "mqtt_status",
+        "Show MQTT connection state, broker, subscribed topics and the number of buffered messages.",
         {},
         async () => {
           // Trigger the first connection so status reflects reality, but don't fail on it.
@@ -245,18 +249,21 @@ export default function create({ env = {}, argv = [] }) {
 
       server.tool(
         "mqtt_get_messages",
+        `Return the newest buffered messages (oldest first), optionally filtered by a topic filter (+ / # wildcards allowed). Payloads longer than ${MAX_PAYLOAD_CHARS} chars are cut and flagged messageTruncated: true.`,
         {
-          limit: z.number().optional(),
+          limit: z.number().int().min(1).max(MAX_GET_LIMIT).optional().describe(`Messages to return (default 10, max ${MAX_GET_LIMIT})`),
           topic: z.string().optional()
         },
         async ({ limit = 10, topic }) => {
           const matches = topic ? compileTopicFilter(topic) : null;
-          return jsonResult(messageStore.latest(limit, matches && ((msg) => matches(msg.topic))));
+          const messages = messageStore.latest(limit, matches && ((msg) => matches(msg.topic)));
+          return jsonResult(messages.map((msg) => truncateField(msg, "message", MAX_PAYLOAD_CHARS)));
         }
       );
 
       server.tool(
         "mqtt_publish",
+        "Publish a string message to an MQTT topic (qos 0-2, default 0; retain default false).",
         {
           topic: z.string(),
           message: z.string(),
@@ -279,6 +286,7 @@ export default function create({ env = {}, argv = [] }) {
 
       server.tool(
         "mqtt_subscribe",
+        "Subscribe to an MQTT topic filter (qos default 1); received messages are buffered for mqtt_get_messages.",
         {
           topic: z.string(),
           qos: z.number().min(0).max(2).optional()
@@ -302,6 +310,7 @@ export default function create({ env = {}, argv = [] }) {
 
       server.tool(
         "mqtt_unsubscribe",
+        "Unsubscribe from a previously subscribed MQTT topic filter.",
         {
           topic: z.string()
         },
@@ -324,6 +333,7 @@ export default function create({ env = {}, argv = [] }) {
 
       server.tool(
         "mqtt_clear_messages",
+        "Clear the in-memory buffer of received MQTT messages.",
         {},
         async () => {
           return textResult(`已清空 ${messageStore.clear()} 條訊息`);
@@ -332,6 +342,7 @@ export default function create({ env = {}, argv = [] }) {
 
       server.tool(
         "mqtt_subscribe_batch",
+        "Subscribe to several MQTT topic filters at once (qos default 1); returns per-topic success.",
         {
           topics: z.array(z.string()),
           qos: z.number().min(0).max(2).optional()

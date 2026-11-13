@@ -6,6 +6,7 @@ export default function create() {
 
     register(server) {
       server.tool("say_hello",
+        "Return a greeting for the given name (connectivity test).",
         { name: z.string() },
         async ({ name }) => ({
           content: [{ type: "text", text: `Hello, ${name}!, mpc server responded` }]
@@ -13,6 +14,7 @@ export default function create() {
       );
 
       server.tool("check_health",
+        "Report that the MCP server is running.",
         {},
         async () => ({
           content: [{ type: "text", text: "Server is healthy and running" }]
