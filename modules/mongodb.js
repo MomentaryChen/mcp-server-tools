@@ -11,8 +11,49 @@ const EJSON_HINT = 'Extended JSON accepted, e.g. { "$date": "2026-01-01T00:00:00
 
 // Tool args arrive as plain JSON, so BSON types (Date, ObjectId, Long...) can only be expressed
 // as Extended JSON. Relaxed mode keeps ordinary numbers as JS numbers.
-function fromEjson(value) {
-  return value === undefined || value === null ? value : BSON.EJSON.deserialize(value, { relaxed: true });
+export function fromEjson(value) {
+  return value === undefined || value === null
+    ? value
+    : restoreRegexOperators(BSON.EJSON.deserialize(protectRegexOperators(value), { relaxed: true }));
+}
+
+// EJSON reads any object with a "$regex" key as a legacy regex literal and drops every other key,
+// so { $regex: "a", $options: "i", $nin: ["x"] } would lose $nin. Hide $regex / $options from the
+// parser when other keys sit beside them, then put them back as one regex value
+// ({ $regex: /a/i, $nin: [...] } is valid MongoDB query syntax).
+// Placeholder keys must not start with "$" (EJSON would parse them) or contain NUL (BSON rejects it).
+const REGEX_KEY = "__mcp_regex__";
+const OPTIONS_KEY = "__mcp_options__";
+
+const isPlainObject = (v) => v !== null && typeof v === "object" && Object.getPrototypeOf(v) === Object.prototype;
+
+function protectRegexOperators(value) {
+  if (Array.isArray(value)) return value.map(protectRegexOperators);
+  if (!isPlainObject(value)) return value;
+  const keys = Object.keys(value);
+  const hasSiblings = "$regex" in value && keys.some((k) => k !== "$regex" && k !== "$options");
+  const out = {};
+  for (const key of keys) {
+    if (hasSiblings && key === "$regex") out[REGEX_KEY] = value[key];
+    else if (hasSiblings && key === "$options") out[OPTIONS_KEY] = value[key];
+    else out[key] = protectRegexOperators(value[key]);
+  }
+  return out;
+}
+
+function restoreRegexOperators(value) {
+  if (Array.isArray(value)) return value.map(restoreRegexOperators);
+  if (!isPlainObject(value)) return value;
+  const out = {};
+  for (const [key, child] of Object.entries(value)) {
+    if (key === OPTIONS_KEY) continue;
+    if (key === REGEX_KEY) {
+      out.$regex = typeof child === "string" ? new BSON.BSONRegExp(child, value[OPTIONS_KEY] ?? "") : child;
+    } else {
+      out[key] = restoreRegexOperators(child);
+    }
+  }
+  return out;
 }
 
 // updateMany/deleteMany with {} touch every document, so an empty filter is refused.
