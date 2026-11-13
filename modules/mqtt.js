@@ -4,7 +4,8 @@ import fs from "fs";
 import { RingBuffer, errorResult, jsonResult, lazy, parseBooleanFlag, textResult, truncateField } from "../lib/common.js";
 
 const maxMessages = 10000;
-// mqtt_get_messages caps: messages per call, and characters per message payload.
+// mqtt_get_messages caps: messages per call, and characters per message payload. Payloads are
+// cut when buffered (not when read), so large messages can't pile up in memory.
 const MAX_GET_LIMIT = 500;
 const MAX_PAYLOAD_CHARS = 4000;
 
@@ -185,13 +186,14 @@ export default function create({ env = {}, argv = [] }) {
         });
 
         client.on("message", (topic, message, packet) => {
-          messageStore.push({
+          const record = {
             topic,
             message: message.toString(),
             timestamp: new Date().toISOString(),
             qos: packet.qos,
             retain: packet.retain
-          });
+          };
+          messageStore.push(truncateField(record, "message", MAX_PAYLOAD_CHARS));
         });
 
         client.on("reconnect", () => console.error("正在重新連線 MQTT Broker..."));
@@ -257,7 +259,7 @@ export default function create({ env = {}, argv = [] }) {
         async ({ limit = 10, topic }) => {
           const matches = topic ? compileTopicFilter(topic) : null;
           const messages = messageStore.latest(limit, matches && ((msg) => matches(msg.topic)));
-          return jsonResult(messages.map((msg) => truncateField(msg, "message", MAX_PAYLOAD_CHARS)));
+          return jsonResult(messages);
         }
       );
 

@@ -1,11 +1,13 @@
 import { z } from "zod";
 import { BSON, MongoClient } from "mongodb";
 import { createSshForwardTunnel, getSshConfigFromEnv, useSshTunnel } from "../lib/ssh-tunnel.js";
-import { closeTunnel, errorResult, jsonResult, lazy, parseBooleanFlag, textResult } from "../lib/common.js";
+import { closeTunnel, errorResult, jsonResult, lazy, parseBooleanFlag, positiveInt, textResult } from "../lib/common.js";
 
 const DEFAULT_QUERY_LIMIT = 50;
 const MAX_QUERY_LIMIT = 500;
 const MAX_BATCH_INSERT = 1000;
+const DEFAULT_MAX_RESPONSE_CHARS = 100000;
+const DEFAULT_TIMEOUT_MS = 60000;
 
 const EJSON_HINT = 'Extended JSON accepted, e.g. { "$date": "2026-01-01T00:00:00Z" }, { "$oid": "..." }.';
 
@@ -56,6 +58,29 @@ function restoreRegexOperators(value) {
   return out;
 }
 
+// Read documents from an (async) iterable until their JSON would pass maxChars. Returns the
+// documents as a plain array when everything fit; otherwise stops reading and returns
+// { documents, truncated: true, returnedCount, maxChars, hint }. The caller closes the cursor.
+export async function collectWithinLimit(docs, maxChars) {
+  const documents = [];
+  let size = 2; // "[]"
+  for await (const doc of docs) {
+    const docSize = JSON.stringify(doc).length + (documents.length > 0 ? 1 : 0);
+    if (size + docSize > maxChars) {
+      return {
+        documents,
+        truncated: true,
+        returnedCount: documents.length,
+        maxChars,
+        hint: "Result exceeded the size limit: use projection to return fewer fields, or a smaller limit."
+      };
+    }
+    documents.push(doc);
+    size += docSize;
+  }
+  return documents;
+}
+
 // updateMany/deleteMany with {} touch every document, so an empty filter is refused.
 function isEmptyFilter(filter) {
   return !filter || typeof filter !== "object" || Object.keys(filter).length === 0;
@@ -83,6 +108,8 @@ export default function create({ env }) {
     MONGO_DATABASE = "test",
     MONGO_AUTH_SOURCE,
     MONGO_AUTH_MECHANISM,
+    MONGO_MAX_RESPONSE_CHARS,
+    MONGO_TIMEOUT_MS,
     MONGO_QUERY_OPERATION = "true",
     MONGO_INSERT_OPERATION = "true",
     MONGO_UPDATE_OPERATION = "true",
@@ -97,6 +124,11 @@ export default function create({ env }) {
     delete: parseBooleanFlag(MONGO_DELETE_OPERATION, true),
     listCollections: parseBooleanFlag(MONGO_LIST_COLLECTIONS_OPERATION, true)
   };
+
+  const maxResponseChars = positiveInt(MONGO_MAX_RESPONSE_CHARS, DEFAULT_MAX_RESPONSE_CHARS);
+  // Server-side limit (maxTimeMS) for reads (find / listCollections). Writes are not limited:
+  // aborting a multi-document update / delete midway would leave it partly applied.
+  const maxTimeMS = positiveInt(MONGO_TIMEOUT_MS, DEFAULT_TIMEOUT_MS);
 
   function buildMongoClient(host, port) {
     const options = {};
@@ -179,7 +211,9 @@ export default function create({ env }) {
       if (operationAccess.query) {
         server.tool(
           "query_mongo",
-          `Find documents. Use projection to return only the fields you need. ${EJSON_HINT}`,
+          "Find documents. Returns an array; if the documents' JSON would exceed the size limit, returns " +
+            "{ documents, truncated: true, returnedCount, hint } with the documents that fit. " +
+            `Use projection to return only the fields you need. ${EJSON_HINT}`,
           {
             collection: z.string(),
             query: z.any().optional(),
@@ -189,12 +223,18 @@ export default function create({ env }) {
             database: z.string().optional()
           },
           async ({ collection, query, projection, sort, limit = DEFAULT_QUERY_LIMIT, database }) => {
+            let cursor;
             try {
-              let cursor = (await dbFor(database)).collection(collection).find(fromEjson(query) || {}, { projection });
+              cursor = (await dbFor(database))
+                .collection(collection)
+                .find(fromEjson(query) || {}, { projection, maxTimeMS });
               if (sort) cursor = cursor.sort(sort);
-              return jsonResult(await cursor.limit(limit).toArray());
+              // Iterate instead of toArray(): stop fetching once the size limit is reached.
+              return jsonResult(await collectWithinLimit(cursor.limit(limit), maxResponseChars));
             } catch (err) {
               return errorResult(`查詢失敗: ${err.message}`);
+            } finally {
+              await cursor?.close().catch(() => {});
             }
           }
         );
@@ -286,7 +326,7 @@ export default function create({ env }) {
           { database: z.string().optional() },
           async ({ database }) => {
             try {
-              const collections = await (await dbFor(database)).listCollections({}, { nameOnly: true }).toArray();
+              const collections = await (await dbFor(database)).listCollections({}, { nameOnly: true, maxTimeMS }).toArray();
               return jsonResult(collections.map((col) => col.name));
             } catch (err) {
               return errorResult(`查詢失敗: ${err.message}`);

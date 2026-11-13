@@ -1,7 +1,7 @@
 import { z } from "zod";
 import mysql from "mysql2/promise";
 import { createSshForwardTunnel, getSshConfigFromEnv, useSshTunnel } from "../lib/ssh-tunnel.js";
-import { closeTunnel, jsonResult, lazy, parseBooleanFlag } from "../lib/common.js";
+import { closeTunnel, jsonResult, lazy, parseBooleanFlag, positiveInt } from "../lib/common.js";
 import { requireEntries, sqlRecordSchema, toSafeIdentifier } from "../lib/sql.js";
 
 const READ_ONLY_PREFIX = /^(SELECT|SHOW|DESCRIBE|DESC|EXPLAIN)\b/i;
@@ -41,7 +41,9 @@ export function assertReadOnlyQuery(sql) {
 // { fields, rows, truncated } for a result set, or { okPacket } for a non-result-set reply.
 // mysql2 cannot cancel a running query, so a truncated read destroys the connection (the
 // pool replaces it); otherwise the connection is released back to the pool.
-function queryLimited(corePool, sql, maxRows) {
+// A query still running after timeoutMs is rejected; its connection is destroyed and the
+// statement is stopped on the server with KILL QUERY (closing the socket alone leaves it running).
+function queryLimited(corePool, sql, maxRows, timeoutMs) {
   return new Promise((resolve, reject) => {
     corePool.getConnection((connErr, conn) => {
       if (connErr) {
@@ -60,6 +62,7 @@ function queryLimited(corePool, sql, maxRows) {
         settled = true;
         conn.removeListener("error", onConnError);
         if (destroy) {
+          clearTimeout(query?.queryTimeout); // Destroyed mid-query: its timeout timer stays armed otherwise.
           conn.destroy();
           conn.stream?.destroy(); // Hard-close the socket so the server stops sending rows.
         } else {
@@ -73,7 +76,7 @@ function queryLimited(corePool, sql, maxRows) {
 
       let query;
       try {
-        query = conn.query({ sql, rowsAsArray: true });
+        query = conn.query({ sql, rowsAsArray: true, timeout: timeoutMs });
       } catch (err) {
         finish(reject, err);
         return;
@@ -93,7 +96,22 @@ function queryLimited(corePool, sql, maxRows) {
           finish(resolve, { fields, rows: rows.slice(0, maxRows), truncated: true }, true);
         }
       });
-      query.on("error", (err) => finish(reject, err));
+      query.on("error", (err) => {
+        // A query cut short by finish(..., true) never completes, so its timer can still fire
+        // later: ignore that instead of killing a thread id that is gone or reused.
+        if (settled) return;
+        if (err.code !== "PROTOCOL_SEQUENCE_TIMEOUT") {
+          finish(reject, err);
+          return;
+        }
+        const threadId = conn.threadId;
+        finish(reject, new Error(`Query timed out after ${timeoutMs} ms (MYSQL_QUERY_TIMEOUT_MS); add a LIMIT or narrow the WHERE`), true);
+        if (threadId != null) {
+          corePool.query(`KILL QUERY ${Number(threadId)}`, (killErr) => {
+            if (killErr) console.error(`❌ KILL QUERY ${threadId} failed: ${killErr.message}`);
+          });
+        }
+      });
       query.on("end", () =>
         finish(resolve, fields ? { fields, rows, truncated: false } : { okPacket })
       );
@@ -109,6 +127,7 @@ export default function create({ env }) {
     MYSQL_PASSWORD,
     MYSQL_DATABASE,
     MYSQL_MAX_ROWS = "500",
+    MYSQL_QUERY_TIMEOUT_MS = "60000",
     MYSQL_QUERY_OPERATION = "true",
     MYSQL_INSERT_OPERATION = "true",
     MYSQL_UPDATE_OPERATION = "true",
@@ -123,6 +142,7 @@ export default function create({ env }) {
   };
 
   const defaultMaxRows = parseInt(MYSQL_MAX_ROWS, 10);
+  const queryTimeoutMs = positiveInt(MYSQL_QUERY_TIMEOUT_MS, 60000);
 
   // Drop a pool whose SSH tunnel died; the next tool call builds a new tunnel and pool.
   function discard(ctx) {
@@ -214,7 +234,7 @@ export default function create({ env }) {
       if (operationAccess.query) {
         server.tool(
           "query_mysql",
-          "Run a read-only SQL statement (SELECT / SHOW / DESCRIBE / EXPLAIN). Returns { columns, rows, rowCount, truncated }: each row is an array in column order. Reading stops after maxRows rows; rowCount is the number of rows returned and truncated: true means more rows exist.",
+          "Run a read-only SQL statement (SELECT / SHOW / DESCRIBE / EXPLAIN). Returns { columns, rows, rowCount, truncated }: each row is an array in column order. Reading stops after maxRows rows; rowCount is the number of rows returned and truncated: true means more rows exist. A query running longer than the configured timeout is cancelled.",
           {
             sql: z.string(),
             maxRows: z.number().int().positive().optional().describe(`Rows to return (default ${defaultMaxRows}); use LIMIT in the SQL to avoid fetching more`)
@@ -224,7 +244,7 @@ export default function create({ env }) {
             // Arrays + one column list instead of one object per row: column names are
             // not repeated on every row (roughly half the size for wide results).
             // Streams rows and stops after maxRows + 1, so a huge result is never buffered.
-            const result = await queryLimited((await db()).pool, sql, maxRows);
+            const result = await queryLimited((await db()).pool, sql, maxRows, queryTimeoutMs);
             if (!result.fields) {
               return jsonResult(result.okPacket); // Not a result set (e.g. EXPLAIN variants returning OK packets).
             }

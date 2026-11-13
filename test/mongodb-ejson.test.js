@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { BSON } from "mongodb";
-import { fromEjson } from "../modules/mongodb.js";
+import { collectWithinLimit, fromEjson } from "../modules/mongodb.js";
 
 test("fromEjson: plain JSON passes through", () => {
   assert.deepEqual(fromEjson({ a: 1, b: { $gt: 2 }, c: ["x"] }), { a: 1, b: { $gt: 2 }, c: ["x"] });
@@ -41,4 +41,33 @@ test("fromEjson: lone $regex / $options is unchanged (regex literal)", () => {
 test("fromEjson: no placeholder keys leak into the result", () => {
   const json = JSON.stringify(Object.keys(fromEjson({ n: { $regex: "a", $options: "i", $exists: true } }).n));
   assert.ok(!json.includes("mcp_"));
+});
+
+test("collectWithinLimit: returns a plain array when everything fits", async () => {
+  const docs = [{ a: 1 }, { a: 2 }];
+  assert.deepEqual(await collectWithinLimit(docs, 1000), docs);
+  assert.deepEqual(await collectWithinLimit([], 10), []);
+});
+
+test("collectWithinLimit: stops at the size limit and stops reading the source", async () => {
+  let pulled = 0;
+  async function* source() {
+    for (let i = 0; i < 100; i++) {
+      pulled++;
+      yield { i, pad: "x".repeat(20) };
+    }
+  }
+  const one = JSON.stringify({ i: 0, pad: "x".repeat(20) }).length; // 29
+  const result = await collectWithinLimit(source(), 2 + one * 3 + 2); // room for exactly 3 docs + 2 commas
+  assert.equal(result.truncated, true);
+  assert.equal(result.returnedCount, 3);
+  assert.deepEqual(result.documents.map((d) => d.i), [0, 1, 2]);
+  assert.ok(JSON.stringify(result.documents).length <= 2 + one * 3 + 2);
+  assert.equal(pulled, 4);
+});
+
+test("collectWithinLimit: a single oversized document yields an empty truncated result", async () => {
+  const result = await collectWithinLimit([{ big: "y".repeat(500) }], 100);
+  assert.equal(result.truncated, true);
+  assert.deepEqual(result.documents, []);
 });
