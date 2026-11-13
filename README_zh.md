@@ -80,7 +80,7 @@ SSH tunnel 每 30 秒送 keepalive；tunnel 斷線（例如 NAT 閒置逾時）�
 - `mongo_delete`
 - `list_mongo_collections`
 
-所有 Mongo 工具的 `query`/`filter`/`document(s)`/`update` 都接受 Extended JSON，例如 `{ "$date": "2026-01-01T00:00:00Z" }` 會存成 BSON Date，`{ "$oid": "..." }` 會轉成 ObjectId。
+所有 Mongo 工具的 `query`/`filter`/`document(s)`/`update` 都接受 Extended JSON，例如 `{ "$date": "2026-01-01T00:00:00Z" }` 會存成 BSON Date，`{ "$oid": "..." }` 會轉成 ObjectId。所有 Mongo 工具都可選填 `database`（預設 `MONGO_DATABASE`）。
 
 ### `servers/files.js`（`file-tools`）
 - `readFile`
@@ -91,6 +91,8 @@ SSH tunnel 每 30 秒送 keepalive；tunnel 斷線（例如 NAT 閒置逾時）�
 - `call_api_put`
 - `call_api_delete`
 
+所有工具的 `headers` 與 post/put 的 `body` 皆為選填，可傳物件或 JSON 字串。
+
 ### `servers/mqtt.js`（`mqtt-tools`）
 - `mqtt_status`
 - `mqtt_get_messages`
@@ -99,6 +101,8 @@ SSH tunnel 每 30 秒送 keepalive；tunnel 斷線（例如 NAT 閒置逾時）�
 - `mqtt_subscribe_batch`
 - `mqtt_unsubscribe`
 - `mqtt_clear_messages`
+
+可用命令列參數（`--host`、`--port`、`--topics`、`--username`、`--password`、`--client-id`、`--tls` / `--no-tls`、`--reject-unauthorized`、`--ca-cert`、`--client-cert`、`--client-key`）或對應的 `MQTT_*` 環境變數設定（見 `.env.example`）。命令列參數優先於環境變數；`--topics` 與 `MQTT_TOPICS` 會合併。預設啟用 TLS，且除非設定 `MQTT_REJECT_UNAUTHORIZED=true`，否則不驗證憑證。
 
 ### `servers/kafka.js`（`kafka-tools`）
 - `kafka_status`

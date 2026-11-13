@@ -21,7 +21,7 @@ function parseBody(body) {
   }
 }
 
-// POST takes headers as a JSON string; a non-JSON or empty string means no headers.
+// Accept headers as an object or a JSON string; a non-JSON or empty string means no headers.
 function parseHeaders(headers) {
   if (typeof headers !== "string") {
     return headers || {};
@@ -34,6 +34,11 @@ function parseHeaders(headers) {
   }
 }
 
+// Every tool takes the same optional headers / body shapes. Strings stay accepted for
+// existing callers that pass JSON text.
+const headersSchema = z.union([z.string(), z.record(z.string(), z.any())]).optional();
+const bodySchema = z.union([z.string(), z.record(z.string(), z.any()), z.array(z.any())]).optional();
+
 export default function create() {
   return {
     info: { name: "axios-tools", version: "1.0.0" },
@@ -44,9 +49,9 @@ export default function create() {
         "call_api_get",
         {
           url: z.string(),
-          headers: z.any().optional()
+          headers: headersSchema
         },
-        async ({ url, headers = {} }) => asText(await apiRequest("get", url, null, headers))
+        async ({ url, headers }) => asText(await apiRequest("get", url, null, parseHeaders(headers)))
       );
 
       // POST
@@ -54,8 +59,8 @@ export default function create() {
         "call_api_post",
         {
           url: z.string(),
-          body: z.string(),
-          headers: z.string()
+          body: bodySchema,
+          headers: headersSchema
         },
         async ({ url, body, headers }) => asText(await apiRequest("post", url, parseBody(body), parseHeaders(headers)))
       );
@@ -65,11 +70,10 @@ export default function create() {
         "call_api_put",
         {
           url: z.string(),
-          body: z.any().optional(),
-          headers: z.any().optional()
+          body: bodySchema,
+          headers: headersSchema
         },
-        async ({ url, body = {}, headers = {} }) =>
-          asText(await apiRequest("put", url, parseBody(body), headers))
+        async ({ url, body, headers }) => asText(await apiRequest("put", url, parseBody(body), parseHeaders(headers)))
       );
 
       // DELETE
@@ -77,9 +81,9 @@ export default function create() {
         "call_api_delete",
         {
           url: z.string(),
-          headers: z.any().optional()
+          headers: headersSchema
         },
-        async ({ url, headers = {} }) => asText(await apiRequest("delete", url, null, headers))
+        async ({ url, headers }) => asText(await apiRequest("delete", url, null, parseHeaders(headers)))
       );
     }
   };
