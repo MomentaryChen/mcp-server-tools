@@ -289,7 +289,6 @@ export default function create({ env, argv = [] }) {
 
   async function startConsumerLoop(ctx) {
     if (state.consumerRunning) return;
-    state.consumerRunning = true;
 
     await ctx.consumer.run({
       eachMessage: async ({ topic, partition, message }) => {
@@ -308,6 +307,8 @@ export default function create({ env, argv = [] }) {
         messageStore.push(record);
       }
     });
+    // Set only after run() succeeds, so a failed start can be retried by the next call.
+    state.consumerRunning = true;
 
     console.error("▶️ Kafka Consumer 開始拉取消息");
   }
@@ -385,11 +386,28 @@ export default function create({ env, argv = [] }) {
               return { content: [{ type: "text", text: `已經訂閱 topic=${topic}` }] };
             }
 
+            // kafkajs only accepts subscribe() while the consumer is stopped; subscriptions accumulate.
+            // Record the topic only once subscribe succeeds, and restart the loop either way so a
+            // failed subscribe (e.g. unknown topic) neither poisons config.topics nor halts consumption.
             await stopConsumerLoop(ctx);
-            config.topics.push(topic);
-            await ctx.consumer.subscribe({ topics: config.topics, fromBeginning });
-            console.error(`✅ 已訂閱 Kafka topic=${topic} fromBeginning=${fromBeginning}`);
-            await startConsumerLoop(ctx);
+            let subscribeError;
+            try {
+              await ctx.consumer.subscribe({ topic, fromBeginning });
+              config.topics.push(topic);
+              console.error(`✅ 已訂閱 Kafka topic=${topic} fromBeginning=${fromBeginning}`);
+            } catch (err) {
+              subscribeError = err;
+            }
+            if (config.topics.length > 0) {
+              try {
+                await startConsumerLoop(ctx);
+              } catch (err) {
+                // Report the subscribe failure as the cause; a restart failure is secondary.
+                if (!subscribeError) throw err;
+                console.error(`❌ 重新啟動 Consumer 失敗: ${err.message}`);
+              }
+            }
+            if (subscribeError) throw subscribeError;
 
             return { content: [{ type: "text", text: `成功訂閱 topic=${topic} fromBeginning=${fromBeginning}` }] };
           } catch (err) {

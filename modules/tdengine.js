@@ -20,6 +20,26 @@ function toSqlLiteral(value) {
   return `'${escaped}'`;
 }
 
+const READ_ONLY_PREFIX = /^(SELECT|SHOW|DESCRIBE|DESC|EXPLAIN)\b/i;
+
+function assertReadOnlyQuery(sql) {
+  const trimmedSql = String(sql || "").trim();
+  if (!trimmedSql) {
+    throw new Error("SQL 不可為空");
+  }
+
+  // Allow only read-only SQL to prevent bypassing write-operation controls via query_tdengine.
+  if (!READ_ONLY_PREFIX.test(trimmedSql)) {
+    throw new Error("Operation not allowed: query_tdengine only allows read-only SQL");
+  }
+
+  // Refuse multiple statements: a ";" outside string literals is only allowed at the very end.
+  const withoutLiterals = trimmedSql.replace(/'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`[^`]*`/g, "");
+  if (/;\s*\S/.test(withoutLiterals)) {
+    throw new Error("Operation not allowed: query_tdengine 只能執行單一 SQL 語句");
+  }
+}
+
 function buildWhereClause(where) {
   return requireEntries(where, "where")
     .map(([column, value]) => {
@@ -124,7 +144,10 @@ export default function create({ env }) {
         server.tool(
           "query_tdengine",
           { sql: z.string() },
-          handle(({ sql }) => queryTDengine(sql))
+          handle(({ sql }) => {
+            assertReadOnlyQuery(sql);
+            return queryTDengine(sql);
+          })
         );
       }
 

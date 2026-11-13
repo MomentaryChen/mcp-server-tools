@@ -15,6 +15,11 @@ function fromEjson(value) {
   return value === undefined || value === null ? value : BSON.EJSON.deserialize(value, { relaxed: true });
 }
 
+// updateMany/deleteMany with {} touch every document, so an empty filter is refused.
+function isEmptyFilter(filter) {
+  return !filter || typeof filter !== "object" || Object.keys(filter).length === 0;
+}
+
 // An update is used as-is when it is an aggregation pipeline (array) or an operator document
 // (all keys start with "$", e.g. { $set, $unset, $inc }); a plain field document is wrapped in $set.
 function toUpdateSpec(update) {
@@ -190,10 +195,13 @@ export default function create({ env }) {
             `is used as-is. ${EJSON_HINT}`,
           {
             collection: z.string(),
-            filter: z.any(),
+            filter: z.record(z.string(), z.any()),
             update: z.any()
           },
           async ({ collection, filter, update }) => {
+            if (isEmptyFilter(filter)) {
+              return errorResult("更新失敗: filter 不可為空，避免誤改整個 collection");
+            }
             try {
               const spec = toUpdateSpec(fromEjson(update));
               const result = await (await dbFor()).collection(collection).updateMany(fromEjson(filter), spec);
@@ -211,9 +219,12 @@ export default function create({ env }) {
           `deleteMany. ${EJSON_HINT}`,
           {
             collection: z.string(),
-            filter: z.any()
+            filter: z.record(z.string(), z.any())
           },
           async ({ collection, filter }) => {
+            if (isEmptyFilter(filter)) {
+              return errorResult("刪除失敗: filter 不可為空，避免誤刪整個 collection");
+            }
             try {
               const result = await (await dbFor()).collection(collection).deleteMany(fromEjson(filter));
               return textResult(`刪除成功, deleted: ${result.deletedCount}`);
