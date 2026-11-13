@@ -54,7 +54,7 @@ SSH tunnels send a keepalive every 30 s. When a tunnel drops (e.g. a NAT idle ti
 
 Tools disabled with `MYSQL_*_OPERATION`, `MONGO_*_OPERATION` or `TDENGINE_*_OPERATION=false` are not registered, so clients never see them (a read-only instance only exposes its query tools).
 
-Tool results are compact JSON. `query_mysql` returns `{ columns, rows, rowCount, truncated }` (rows as arrays, at most `maxRows`, default `MYSQL_MAX_ROWS` = 500). `query_mongo` accepts `projection`, `sort` and `limit` (default 50, max 500).
+Tool results are compact JSON. `query_mysql` returns `{ columns, rows, rowCount, truncated }` (rows as arrays, at most `maxRows`, default `MYSQL_MAX_ROWS` = 500). `query_mongo` accepts `projection`, `sort` and `limit` (default 50, max 500). `query_mysql` stops reading after `maxRows`, so `rowCount` is the number of rows returned. `query_tdengine` returns the same shape (default `TDENGINE_MAX_ROWS` = 500; `rowCount` is the full result count). `kafka_get_messages` / `mqtt_get_messages` take `limit` up to 500 and cut values over 4000 chars (`valueTruncated` / `messageTruncated`); HTTP response bodies are cut at `HTTP_MAX_RESPONSE_CHARS` (default 100000, `dataTruncated`); `readFile` reads at most `maxBytes` (default 200000).
 
 ## Tool Matrix
 

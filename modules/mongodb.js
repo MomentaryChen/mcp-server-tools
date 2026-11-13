@@ -241,6 +241,7 @@ export default function create({ env }) {
       if (operationAccess.listCollections) {
         server.tool(
           "list_mongo_collections",
+          "List collection names in a database (default: the configured MONGO_DATABASE).",
           { database: z.string().optional() },
           async ({ database }) => {
             try {
