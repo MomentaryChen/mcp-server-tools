@@ -5,7 +5,9 @@ import { createSshForwardTunnel, getSshConfigFromEnv, useSshTunnel } from "../li
 import { RingBuffer, closeTunnel, jsonResult, lazy, parseBooleanFlag, truncateField } from "../lib/common.js";
 
 const maxMessages = 10000;
-// kafka_get_messages caps: messages per call, and characters per message value.
+// kafka_get_messages caps: messages per call, and characters per message value. Values are
+// cut when buffered, not when read: 10k buffered messages of a few MB each would otherwise
+// hold gigabytes that no tool call can ever return.
 const MAX_GET_LIMIT = 500;
 const MAX_VALUE_CHARS = 4000;
 
@@ -307,7 +309,7 @@ export default function create({ env, argv = [] }) {
             : {}
         };
 
-        messageStore.push(record);
+        messageStore.push(truncateField(record, "value", MAX_VALUE_CHARS));
       }
     });
     // Set only after run() succeeds, so a failed start can be retried by the next call.
@@ -437,7 +439,7 @@ export default function create({ env, argv = [] }) {
             filtered &&
               ((m) => (topic === undefined || m.topic === topic) && (partition === undefined || m.partition === partition))
           );
-          return jsonResult(messages.map((m) => truncateField(m, "value", MAX_VALUE_CHARS)));
+          return jsonResult(messages);
         }
       );
 

@@ -6,6 +6,12 @@
     "hello": {
       "module": "hello"
     },
+    "file-tools": {
+      "module": "files",
+      "env": {
+        "FILES_ROOTS": "D:/projects;D:/workspace"
+      }
+    },
     "mysql-alpha-tools": {
       "module": "mysql",
       "envFile": ".env.alpha"

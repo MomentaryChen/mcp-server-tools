@@ -54,7 +54,7 @@ SSH tunnel 每 30 秒送 keepalive；tunnel 斷線（例如 NAT 閒置逾時）�
 
 `MYSQL_*_OPERATION`、`MONGO_*_OPERATION`、`TDENGINE_*_OPERATION=false` 的工具不會註冊，client 完全看不到（唯讀 instance 只會出現查詢工具）。
 
-工具結果為不縮排的 JSON。`query_mysql` 回傳 `{ columns, rows, rowCount, truncated }`（每列為陣列，最多 `maxRows` 筆，預設 `MYSQL_MAX_ROWS` = 500）。`query_mongo` 可帶 `projection`、`sort`、`limit`（預設 50，上限 500）。`query_mysql` 讀到 `maxRows` 筆即停止，因此 `rowCount` 為實際回傳筆數。`query_tdengine` 回傳相同格式（預設 `TDENGINE_MAX_ROWS` = 500；`rowCount` 為結果總筆數）。`kafka_get_messages` / `mqtt_get_messages` 的 `limit` 上限 500，超過 4000 字元的內容會截斷（`valueTruncated` / `messageTruncated`）；HTTP 回應 body 超過 `HTTP_MAX_RESPONSE_CHARS`（預設 100000）會截斷（`dataTruncated`）；`readFile` 最多讀 `maxBytes`（預設 200000）bytes。
+工具結果為不縮排的 JSON。`query_mysql` 回傳 `{ columns, rows, rowCount, truncated }`（每列為陣列，最多 `maxRows` 筆，預設 `MYSQL_MAX_ROWS` = 500）。`query_mongo` 可帶 `projection`、`sort`、`limit`（預設 50，上限 500）；文件 JSON 超過 `MONGO_MAX_RESPONSE_CHARS`（預設 100000）時會停止讀取，改回傳 `{ documents, truncated: true, returnedCount, hint }`。`query_mysql` 讀到 `maxRows` 筆即停止，因此 `rowCount` 為實際回傳筆數。查詢有時間上限：`query_mysql` 超過 `MYSQL_QUERY_TIMEOUT_MS`（預設 60000）會被取消（`KILL QUERY`），Mongo 的 find / listCollections 使用 `maxTimeMS` = `MONGO_TIMEOUT_MS`（預設 60000）。`query_tdengine` 回傳相同格式（預設 `TDENGINE_MAX_ROWS` = 500；`rowCount` 為結果總筆數）。`kafka_get_messages` / `mqtt_get_messages` 的 `limit` 上限 500，超過 4000 字元的內容在存入緩衝區時就會截斷，避免大訊息佔滿記憶體（`valueTruncated` / `messageTruncated`，原始長度記在 `valueLength` / `messageLength`）；HTTP 回應 body 超過 `HTTP_MAX_RESPONSE_CHARS`（預設 100000）會截斷（`dataTruncated`）；`readFile` 最多讀 `maxBytes`（預設 200000，上限 `FILES_MAX_BYTES` = 2000000）bytes。設定 `FILES_ROOTS`（多個目錄在 Windows 以 `;` 分隔，其他系統以 `:`）可限制 `readFile` 只能讀這些目錄；未設定時可讀取任何本機檔案。
 
 ## 工具清單
 
