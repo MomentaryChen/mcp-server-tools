@@ -63,7 +63,7 @@ Tool results are compact JSON. `query_mysql` returns `{ columns, rows, rowCount,
 
 ### `servers/mysql.js` (`mysql-tools`)
 - `query_mysql`
-- `insert_mysql`
+- `insert_mysql` — `data` is one row object, or an array of up to 1000 rows with the same columns (one multi-row INSERT)
 - `update_mysql`
 - `delete_mysql`
 
@@ -75,7 +75,7 @@ Tool results are compact JSON. `query_mysql` returns `{ columns, rows, rowCount,
 
 ### `servers/mongodb.js` (`mongo_db-tools`)
 - `query_mongo`
-- `mongo_insert`
+- `mongo_insert` — `document` for one, or `documents` (array, up to 1000, `insertMany` ordered)
 - `mongo_update`
 - `mongo_delete`
 - `list_mongo_collections`

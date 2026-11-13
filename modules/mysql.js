@@ -5,6 +5,7 @@ import { closeTunnel, jsonResult, lazy, parseBooleanFlag } from "../lib/common.j
 import { requireEntries, sqlRecordSchema, toSafeIdentifier } from "../lib/sql.js";
 
 const READ_ONLY_PREFIX = /^(SELECT|SHOW|DESCRIBE|DESC|EXPLAIN)\b/i;
+const MAX_BATCH_INSERT = 1000;
 
 function buildWhereClause(where) {
   const clauses = [];
@@ -106,6 +107,30 @@ export default function create({ env }) {
 
   const db = async () => (await getDb()).pool;
 
+  // Batch insert as one multi-row INSERT, so the batch is all-or-nothing. Every row must have
+  // the same columns as the first. Uses query() with "VALUES ?" (client-side escaping) instead
+  // of execute(), which caps a prepared statement at 65535 placeholders.
+  async function insertRows(table, rows) {
+    const columns = requireEntries(rows[0], "data[0]").map(([column]) => column);
+    const columnKey = [...columns].sort().join(",");
+    const values = rows.map((row, i) => {
+      if (Object.keys(row).sort().join(",") !== columnKey) {
+        throw new Error(`data[${i}] 的欄位與 data[0] 不同，batch insert 每筆欄位必須相同（${columns.join(", ")}）`);
+      }
+      return columns.map((column) => row[column]);
+    });
+
+    const sql = `INSERT INTO ${toSafeIdentifier(table)} (${columns.map(toSafeIdentifier).join(", ")}) VALUES ?`;
+    const [result] = await (await db()).query(sql, [values]);
+
+    return {
+      message: "batch insert success",
+      affectedRows: result.affectedRows,
+      // For a multi-row INSERT MySQL reports the AUTO_INCREMENT id of the first row.
+      firstInsertId: result.insertId
+    };
+  }
+
   return {
     info: { name: "mysql-tools", version: "2.0.0" },
     warmup: getDb,
@@ -150,11 +175,16 @@ export default function create({ env }) {
       if (operationAccess.insert) {
         server.tool(
           "insert_mysql",
+          `Insert one row (data: object) or a batch of up to ${MAX_BATCH_INSERT} rows (data: array of objects with the same columns) in one INSERT statement.`,
           {
             table: z.string(),
-            data: sqlRecordSchema
+            data: z.union([sqlRecordSchema, z.array(sqlRecordSchema).min(1).max(MAX_BATCH_INSERT)])
           },
           async ({ table, data }) => {
+            if (Array.isArray(data)) {
+              return jsonResult(await insertRows(table, data));
+            }
+
             const entries = requireEntries(data, "data");
             const columns = entries.map(([column]) => toSafeIdentifier(column)).join(", ");
             const placeholders = entries.map(() => "?").join(", ");
