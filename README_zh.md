@@ -20,7 +20,7 @@
 
 ## 環境需求
 
-- Node.js `18+`
+- Node.js `20+`
 - npm
 - 僅 `servers/outlook.js`：Windows，並安裝傳統版 Outlook（Microsoft 365 / Office 16）且已設定好信箱帳號
 
