@@ -310,7 +310,7 @@ export default function create({ env, argv = [] }) {
     // Set only after run() succeeds, so a failed start can be retried by the next call.
     state.consumerRunning = true;
 
-    console.error("▶️ Kafka Consumer 開始拉取消息");
+    console.error("▶️ Kafka Consumer 開始拉取訊息");
   }
 
   return {
@@ -362,7 +362,7 @@ export default function create({ env, argv = [] }) {
 
             return {
               content: [
-                { type: "text", text: `消息已送出 topic=${topic}${partition !== undefined ? ` partition=${partition}` : ""}` }
+                { type: "text", text: `訊息已送出 topic=${topic}${partition !== undefined ? ` partition=${partition}` : ""}` }
               ]
             };
           } catch (err) {
@@ -439,7 +439,7 @@ export default function create({ env, argv = [] }) {
         {},
         async () => {
           const count = messageStore.clear();
-          return { content: [{ type: "text", text: `已清空 ${count} 條緩存消息` }] };
+          return { content: [{ type: "text", text: `已清空 ${count} 條緩存訊息` }] };
         }
       );
     }

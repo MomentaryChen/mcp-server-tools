@@ -80,7 +80,7 @@ Tool results are compact JSON. `query_mysql` returns `{ columns, rows, rowCount,
 - `mongo_delete`
 - `list_mongo_collections`
 
-All Mongo tools accept Extended JSON in `query`/`filter`/`document(s)`/`update`, e.g. `{ "$date": "2026-01-01T00:00:00Z" }` is stored as a BSON Date and `{ "$oid": "..." }` as an ObjectId.
+All Mongo tools accept Extended JSON in `query`/`filter`/`document(s)`/`update`, e.g. `{ "$date": "2026-01-01T00:00:00Z" }` is stored as a BSON Date and `{ "$oid": "..." }` as an ObjectId. Every Mongo tool takes an optional `database` (default `MONGO_DATABASE`).
 
 ### `servers/files.js` (`file-tools`)
 - `readFile`
@@ -91,6 +91,8 @@ All Mongo tools accept Extended JSON in `query`/`filter`/`document(s)`/`update`,
 - `call_api_put`
 - `call_api_delete`
 
+`headers` (all tools) and `body` (post/put) are optional and accept either an object or a JSON string.
+
 ### `servers/mqtt.js` (`mqtt-tools`)
 - `mqtt_status`
 - `mqtt_get_messages`
@@ -99,6 +101,8 @@ All Mongo tools accept Extended JSON in `query`/`filter`/`document(s)`/`update`,
 - `mqtt_subscribe_batch`
 - `mqtt_unsubscribe`
 - `mqtt_clear_messages`
+
+Configured by command-line flags (`--host`, `--port`, `--topics`, `--username`, `--password`, `--client-id`, `--tls` / `--no-tls`, `--reject-unauthorized`, `--ca-cert`, `--client-cert`, `--client-key`) or the matching `MQTT_*` env vars (see `.env.example`). A flag wins over its env var; `--topics` and `MQTT_TOPICS` are merged. TLS is on by default and certificate verification is off unless `MQTT_REJECT_UNAUTHORIZED=true`.
 
 ### `servers/kafka.js` (`kafka-tools`)
 - `kafka_status`

@@ -166,14 +166,15 @@ export default function create({ env }) {
           {
             collection: z.string(),
             document: z.record(z.string(), z.any()).optional(),
-            documents: z.array(z.record(z.string(), z.any())).min(1).max(MAX_BATCH_INSERT).optional()
+            documents: z.array(z.record(z.string(), z.any())).min(1).max(MAX_BATCH_INSERT).optional(),
+            database: z.string().optional()
           },
-          async ({ collection, document, documents }) => {
+          async ({ collection, document, documents, database }) => {
             if ((document === undefined) === (documents === undefined)) {
               return errorResult("插入失敗: document 與 documents 必須擇一提供");
             }
             try {
-              const coll = (await dbFor()).collection(collection);
+              const coll = (await dbFor(database)).collection(collection);
               if (documents) {
                 const result = await coll.insertMany(documents.map(fromEjson), { ordered: true });
                 return jsonResult({ insertedCount: result.insertedCount, insertedIds: Object.values(result.insertedIds) });
@@ -196,15 +197,16 @@ export default function create({ env }) {
           {
             collection: z.string(),
             filter: z.record(z.string(), z.any()),
-            update: z.any()
+            update: z.any(),
+            database: z.string().optional()
           },
-          async ({ collection, filter, update }) => {
+          async ({ collection, filter, update, database }) => {
             if (isEmptyFilter(filter)) {
               return errorResult("更新失敗: filter 不可為空，避免誤改整個 collection");
             }
             try {
               const spec = toUpdateSpec(fromEjson(update));
-              const result = await (await dbFor()).collection(collection).updateMany(fromEjson(filter), spec);
+              const result = await (await dbFor(database)).collection(collection).updateMany(fromEjson(filter), spec);
               return textResult(`更新成功, matched: ${result.matchedCount}, modified: ${result.modifiedCount}`);
             } catch (err) {
               return errorResult(`更新失敗: ${err.message}`);
@@ -219,14 +221,15 @@ export default function create({ env }) {
           `deleteMany. ${EJSON_HINT}`,
           {
             collection: z.string(),
-            filter: z.record(z.string(), z.any())
+            filter: z.record(z.string(), z.any()),
+            database: z.string().optional()
           },
-          async ({ collection, filter }) => {
+          async ({ collection, filter, database }) => {
             if (isEmptyFilter(filter)) {
               return errorResult("刪除失敗: filter 不可為空，避免誤刪整個 collection");
             }
             try {
-              const result = await (await dbFor()).collection(collection).deleteMany(fromEjson(filter));
+              const result = await (await dbFor(database)).collection(collection).deleteMany(fromEjson(filter));
               return textResult(`刪除成功, deleted: ${result.deletedCount}`);
             } catch (err) {
               return errorResult(`刪除失敗: ${err.message}`);
