@@ -7,7 +7,7 @@ import { requireEntries, sqlRecordSchema, toSafeIdentifier } from "../lib/sql.js
 const READ_ONLY_PREFIX = /^(SELECT|SHOW|DESCRIBE|DESC|EXPLAIN)\b/i;
 const MAX_BATCH_INSERT = 1000;
 
-function buildWhereClause(where) {
+export function buildWhereClause(where) {
   const clauses = [];
   const params = [];
 
@@ -24,7 +24,7 @@ function buildWhereClause(where) {
   return { clause: clauses.join(" AND "), params };
 }
 
-function assertReadOnlyQuery(sql) {
+export function assertReadOnlyQuery(sql) {
   const trimmedSql = String(sql || "").trim();
   if (!trimmedSql) {
     throw new Error("SQL 不可為空");

@@ -3,7 +3,7 @@ import { createSshForwardTunnel, getSshConfigFromEnv, useSshTunnel } from "../li
 import { closeTunnel, errorResult, jsonResult, lazy, parseBooleanFlag } from "../lib/common.js";
 import { requireEntries, sqlRecordSchema, toSafeIdentifier } from "../lib/sql.js";
 
-function toSqlLiteral(value) {
+export function toSqlLiteral(value) {
   if (value === null) {
     return "NULL";
   }
@@ -22,7 +22,7 @@ function toSqlLiteral(value) {
 
 const READ_ONLY_PREFIX = /^(SELECT|SHOW|DESCRIBE|DESC|EXPLAIN)\b/i;
 
-function assertReadOnlyQuery(sql) {
+export function assertReadOnlyQuery(sql) {
   const trimmedSql = String(sql || "").trim();
   if (!trimmedSql) {
     throw new Error("SQL 不可為空");
@@ -40,7 +40,7 @@ function assertReadOnlyQuery(sql) {
   }
 }
 
-function buildWhereClause(where) {
+export function buildWhereClause(where) {
   return requireEntries(where, "where")
     .map(([column, value]) => {
       const safeColumn = toSafeIdentifier(column);

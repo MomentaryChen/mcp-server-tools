@@ -9,6 +9,7 @@
 import fs from "fs";
 import http from "http";
 import path from "path";
+import util from "util";
 import { randomUUID } from "crypto";
 import { fileURLToPath } from "url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -24,24 +25,61 @@ const MAX_BODY_BYTES = 16 * 1024 * 1024;
 // ---------------------------------------------------------------- logging
 const logDir = path.join(rootDir, "logs");
 const logFile = path.join(logDir, "gateway.log");
+// gateway.log is renamed to gateway.log.1 (replacing it) whenever it grows past this size.
+const LOG_MAX_BYTES = parseInt(process.env.GATEWAY_LOG_MAX_BYTES || "", 10) || 10 * 1024 * 1024;
 fs.mkdirSync(logDir, { recursive: true });
-try {
-  if (fs.statSync(logFile).size > 10 * 1024 * 1024) {
-    fs.renameSync(logFile, `${logFile}.1`);
-  }
-} catch {
-  // No log file yet.
+
+// Written synchronously through a plain fd: every line is on disk before the next one, so
+// rotating is just close -> rename -> reopen with nothing buffered in between to lose
+// (Windows also refuses to rename a file that is still open).
+let logFd;
+let logBytes = 0;
+function openLog() {
+  logFd = fs.openSync(logFile, "a");
+  logBytes = fs.fstatSync(logFd).size;
 }
-const logStream = fs.createWriteStream(logFile, { flags: "a" });
+function rotateLog() {
+  fs.closeSync(logFd);
+  logFd = null; // Never write to a closed fd number the OS may have reused.
+  try {
+    fs.renameSync(logFile, `${logFile}.1`);
+  } catch {
+    // e.g. gateway.log.1 is open in a viewer on Windows: keep appending, retry next line.
+  }
+  openLog();
+}
+function writeLog(text) {
+  try {
+    if (logFd == null) openLog();
+    else if (logBytes >= LOG_MAX_BYTES) rotateLog();
+    logBytes += fs.writeSync(logFd, text);
+  } catch {
+    // Logging must never take the gateway down.
+  }
+}
+openLog();
+
+function formatLogArg(a) {
+  if (typeof a === "string") return a;
+  if (a instanceof Error) return a.stack;
+  try {
+    const json = JSON.stringify(a);
+    if (json !== undefined) return json;
+  } catch {
+    // Circular structure, BigInt, throwing toJSON...
+  }
+  return util.inspect(a, { depth: 4, breakLength: Infinity });
+}
+
 // Modules log everything via console.error (stdout is reserved in stdio mode),
 // so label by content: only real failures are written as [error].
 const ERROR_PATTERN = /❌|error|fail|exception|refused|timeout|失敗|錯誤|逾時/i;
 for (const level of ["log", "info", "warn", "error"]) {
   const original = console[level].bind(console);
   console[level] = (...args) => {
-    const line = args.map((a) => (typeof a === "string" ? a : a instanceof Error ? a.stack : JSON.stringify(a))).join(" ");
+    const line = args.map(formatLogArg).join(" ");
     const label = level === "error" && !ERROR_PATTERN.test(line) ? "info" : level;
-    logStream.write(`${new Date().toISOString()} [${label}] ${line}\n`);
+    writeLog(`${new Date().toISOString()} [${label}] ${line}\n`);
     original(...args);
   };
 }

@@ -124,7 +124,7 @@ function buildMqttOptions(config) {
 }
 
 // Compile an MQTT topic filter once: `+` = one level, trailing `#` = this level and below.
-function compileTopicFilter(pattern) {
+export function compileTopicFilter(pattern) {
   const levels = pattern.split("/");
   const multi = levels.at(-1) === "#";
   if (multi) levels.pop();
