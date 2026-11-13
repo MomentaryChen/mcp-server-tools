@@ -63,7 +63,7 @@ SSH tunnel 每 30 秒送 keepalive；tunnel 斷線（例如 NAT 閒置逾時）�
 
 ### `servers/mysql.js`（`mysql-tools`）
 - `query_mysql`
-- `insert_mysql`
+- `insert_mysql` — `data` 可為單筆物件，或最多 1000 筆、欄位相同的陣列（單一 multi-row INSERT）
 - `update_mysql`
 - `delete_mysql`
 
@@ -75,7 +75,7 @@ SSH tunnel 每 30 秒送 keepalive；tunnel 斷線（例如 NAT 閒置逾時）�
 
 ### `servers/mongodb.js`（`mongo_db-tools`）
 - `query_mongo`
-- `mongo_insert`
+- `mongo_insert` — 單筆用 `document`，批次用 `documents`（陣列，最多 1000 筆，`insertMany` ordered）
 - `mongo_update`
 - `mongo_delete`
 - `list_mongo_collections`

@@ -5,6 +5,7 @@ import { closeTunnel, errorResult, jsonResult, lazy, parseBooleanFlag, textResul
 
 const DEFAULT_QUERY_LIMIT = 50;
 const MAX_QUERY_LIMIT = 500;
+const MAX_BATCH_INSERT = 1000;
 
 export default function create({ env }) {
   const {
@@ -135,13 +136,23 @@ export default function create({ env }) {
       if (operationAccess.insert) {
         server.tool(
           "mongo_insert",
+          `Insert one document (document) or a batch of up to ${MAX_BATCH_INSERT} (documents, ordered: stops at the first error). Pass exactly one of the two.`,
           {
             collection: z.string(),
-            document: z.any()
+            document: z.record(z.string(), z.any()).optional(),
+            documents: z.array(z.record(z.string(), z.any())).min(1).max(MAX_BATCH_INSERT).optional()
           },
-          async ({ collection, document }) => {
+          async ({ collection, document, documents }) => {
+            if ((document === undefined) === (documents === undefined)) {
+              return errorResult("插入失敗: document 與 documents 必須擇一提供");
+            }
             try {
-              const result = await (await dbFor()).collection(collection).insertOne(document);
+              const coll = (await dbFor()).collection(collection);
+              if (documents) {
+                const result = await coll.insertMany(documents, { ordered: true });
+                return jsonResult({ insertedCount: result.insertedCount, insertedIds: Object.values(result.insertedIds) });
+              }
+              const result = await coll.insertOne(document);
               return textResult(`插入成功, id: ${result.insertedId}`);
             } catch (err) {
               return errorResult(`插入失敗: ${err.message}`);
