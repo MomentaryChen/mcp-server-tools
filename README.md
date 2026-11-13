@@ -76,9 +76,11 @@ Tool results are compact JSON. `query_mysql` returns `{ columns, rows, rowCount,
 ### `servers/mongodb.js` (`mongo_db-tools`)
 - `query_mongo`
 - `mongo_insert` — `document` for one, or `documents` (array, up to 1000, `insertMany` ordered)
-- `mongo_update`
+- `mongo_update` — a plain field document is wrapped in `$set`; an operator document (`$set`/`$unset`/`$inc`...) or a pipeline array (e.g. `$toDate`) is used as-is
 - `mongo_delete`
 - `list_mongo_collections`
+
+All Mongo tools accept Extended JSON in `query`/`filter`/`document(s)`/`update`, e.g. `{ "$date": "2026-01-01T00:00:00Z" }` is stored as a BSON Date and `{ "$oid": "..." }` as an ObjectId.
 
 ### `servers/files.js` (`file-tools`)
 - `readFile`

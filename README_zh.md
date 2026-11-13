@@ -76,9 +76,11 @@ SSH tunnel 每 30 秒送 keepalive；tunnel 斷線（例如 NAT 閒置逾時）�
 ### `servers/mongodb.js`（`mongo_db-tools`）
 - `query_mongo`
 - `mongo_insert` — 單筆用 `document`，批次用 `documents`（陣列，最多 1000 筆，`insertMany` ordered）
-- `mongo_update`
+- `mongo_update` — 一般欄位物件會包進 `$set`；運算子物件（`$set`/`$unset`/`$inc`…）或 pipeline 陣列（可用 `$toDate`）原樣使用
 - `mongo_delete`
 - `list_mongo_collections`
+
+所有 Mongo 工具的 `query`/`filter`/`document(s)`/`update` 都接受 Extended JSON，例如 `{ "$date": "2026-01-01T00:00:00Z" }` 會存成 BSON Date，`{ "$oid": "..." }` 會轉成 ObjectId。
 
 ### `servers/files.js`（`file-tools`）
 - `readFile`

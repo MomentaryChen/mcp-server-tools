@@ -1,11 +1,32 @@
 import { z } from "zod";
-import { MongoClient } from "mongodb";
+import { BSON, MongoClient } from "mongodb";
 import { createSshForwardTunnel, getSshConfigFromEnv, useSshTunnel } from "../lib/ssh-tunnel.js";
 import { closeTunnel, errorResult, jsonResult, lazy, parseBooleanFlag, textResult } from "../lib/common.js";
 
 const DEFAULT_QUERY_LIMIT = 50;
 const MAX_QUERY_LIMIT = 500;
 const MAX_BATCH_INSERT = 1000;
+
+const EJSON_HINT = 'Extended JSON accepted, e.g. { "$date": "2026-01-01T00:00:00Z" }, { "$oid": "..." }.';
+
+// Tool args arrive as plain JSON, so BSON types (Date, ObjectId, Long...) can only be expressed
+// as Extended JSON. Relaxed mode keeps ordinary numbers as JS numbers.
+function fromEjson(value) {
+  return value === undefined || value === null ? value : BSON.EJSON.deserialize(value, { relaxed: true });
+}
+
+// An update is used as-is when it is an aggregation pipeline (array) or an operator document
+// (all keys start with "$", e.g. { $set, $unset, $inc }); a plain field document is wrapped in $set.
+function toUpdateSpec(update) {
+  if (Array.isArray(update)) return update;
+  if (!update || typeof update !== "object") throw new Error("update 必須是物件或 pipeline 陣列");
+  const keys = Object.keys(update);
+  if (keys.length === 0) throw new Error("update 不可為空");
+  const operatorKeys = keys.filter((k) => k.startsWith("$"));
+  if (operatorKeys.length === keys.length) return update;
+  if (operatorKeys.length > 0) throw new Error("update 不可混用 $ 運算子與一般欄位");
+  return { $set: update };
+}
 
 export default function create({ env }) {
   const {
@@ -112,7 +133,7 @@ export default function create({ env }) {
       if (operationAccess.query) {
         server.tool(
           "query_mongo",
-          "Find documents. Use projection to return only the fields you need.",
+          `Find documents. Use projection to return only the fields you need. ${EJSON_HINT}`,
           {
             collection: z.string(),
             query: z.any().optional(),
@@ -123,7 +144,7 @@ export default function create({ env }) {
           },
           async ({ collection, query, projection, sort, limit = DEFAULT_QUERY_LIMIT, database }) => {
             try {
-              let cursor = (await dbFor(database)).collection(collection).find(query || {}, { projection });
+              let cursor = (await dbFor(database)).collection(collection).find(fromEjson(query) || {}, { projection });
               if (sort) cursor = cursor.sort(sort);
               return jsonResult(await cursor.limit(limit).toArray());
             } catch (err) {
@@ -136,7 +157,7 @@ export default function create({ env }) {
       if (operationAccess.insert) {
         server.tool(
           "mongo_insert",
-          `Insert one document (document) or a batch of up to ${MAX_BATCH_INSERT} (documents, ordered: stops at the first error). Pass exactly one of the two.`,
+          `Insert one document (document) or a batch of up to ${MAX_BATCH_INSERT} (documents, ordered: stops at the first error). Pass exactly one of the two. ${EJSON_HINT}`,
           {
             collection: z.string(),
             document: z.record(z.string(), z.any()).optional(),
@@ -149,10 +170,10 @@ export default function create({ env }) {
             try {
               const coll = (await dbFor()).collection(collection);
               if (documents) {
-                const result = await coll.insertMany(documents, { ordered: true });
+                const result = await coll.insertMany(documents.map(fromEjson), { ordered: true });
                 return jsonResult({ insertedCount: result.insertedCount, insertedIds: Object.values(result.insertedIds) });
               }
-              const result = await coll.insertOne(document);
+              const result = await coll.insertOne(fromEjson(document));
               return textResult(`插入成功, id: ${result.insertedId}`);
             } catch (err) {
               return errorResult(`插入失敗: ${err.message}`);
@@ -164,6 +185,9 @@ export default function create({ env }) {
       if (operationAccess.update) {
         server.tool(
           "mongo_update",
+          "updateMany. update: a plain field document is wrapped in $set; an operator document " +
+            "({ $set, $unset, $inc, ... }) or an aggregation pipeline array (e.g. [{ $set: { t: { $toDate: \"$t\" } } }]) " +
+            `is used as-is. ${EJSON_HINT}`,
           {
             collection: z.string(),
             filter: z.any(),
@@ -171,7 +195,8 @@ export default function create({ env }) {
           },
           async ({ collection, filter, update }) => {
             try {
-              const result = await (await dbFor()).collection(collection).updateMany(filter, { $set: update });
+              const spec = toUpdateSpec(fromEjson(update));
+              const result = await (await dbFor()).collection(collection).updateMany(fromEjson(filter), spec);
               return textResult(`更新成功, matched: ${result.matchedCount}, modified: ${result.modifiedCount}`);
             } catch (err) {
               return errorResult(`更新失敗: ${err.message}`);
@@ -183,13 +208,14 @@ export default function create({ env }) {
       if (operationAccess.delete) {
         server.tool(
           "mongo_delete",
+          `deleteMany. ${EJSON_HINT}`,
           {
             collection: z.string(),
             filter: z.any()
           },
           async ({ collection, filter }) => {
             try {
-              const result = await (await dbFor()).collection(collection).deleteMany(filter);
+              const result = await (await dbFor()).collection(collection).deleteMany(fromEjson(filter));
               return textResult(`刪除成功, deleted: ${result.deletedCount}`);
             } catch (err) {
               return errorResult(`刪除失敗: ${err.message}`);
