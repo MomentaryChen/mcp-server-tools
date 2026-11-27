@@ -12,6 +12,7 @@ This repository provides MCP servers you can plug into Cursor or any MCP-compati
 - `servers/mysql.js` - MySQL query and CRUD-like operations
 - `servers/tdengine.js` - TDengine SQL query and data operations via REST
 - `servers/mongodb.js` - MongoDB query/insert/update/delete/list collections
+- `servers/redis.js` - Redis key scan/read, INFO, and guarded single commands
 - `servers/files.js` - File reading tool
 - `servers/axios.js` - HTTP GET/POST/PUT/DELETE tools
 - `servers/mqtt.js` - MQTT subscribe/publish with runtime topic management
@@ -81,6 +82,14 @@ Tool results are compact JSON. `query_mysql` returns `{ columns, rows, rowCount,
 - `list_mongo_collections`
 
 All Mongo tools accept Extended JSON in `query`/`filter`/`document(s)`/`update`, e.g. `{ "$date": "2026-01-01T00:00:00Z" }` is stored as a BSON Date and `{ "$oid": "..." }` as an ObjectId. Every Mongo tool takes an optional `database` (default `MONGO_DATABASE`).
+
+### `servers/redis.js` (`redis-tools`)
+- `redis_scan` — SCAN with a glob `pattern` and optional `type` (never `KEYS`); returns `{ keys, cursor, done }`, pass `cursor` back to continue
+- `redis_get` — read one key of any type with its TTL; collections return at most `limit` entries plus the total length, long strings are cut to `REDIS_MAX_RESPONSE_CHARS`
+- `redis_info` — `INFO` (optionally one section) plus `DBSIZE`
+- `redis_command` — one command, e.g. `{ command: "HGET", args: ["k", "f"] }`. Each command is classified by the server's `COMMAND INFO`: read commands need `REDIS_QUERY_OPERATION`, write commands `REDIS_WRITE_OPERATION`. Admin / dangerous / blocking / pub-sub / scripting / transaction commands, `KEYS`, `SELECT`, `CONFIG` and `FLUSH*` are always refused
+
+Settings: `REDIS_HOST`, `REDIS_PORT`, `REDIS_USERNAME`, `REDIS_PASSWORD`, `REDIS_DB`, `REDIS_TIMEOUT_MS`, `REDIS_MAX_RESPONSE_CHARS`, and `REDIS_SSH_JUMPS` (falls back to `SSH_JUMPS`). See `.env.example`.
 
 ### `servers/files.js` (`file-tools`)
 - `readFile`
@@ -207,6 +216,7 @@ node servers/hello.js
 node servers/mysql.js
 node servers/tdengine.js
 node servers/mongodb.js
+node servers/redis.js
 node servers/files.js
 node servers/axios.js
 node servers/mqtt.js --host alpha --topics "/events/#"
@@ -310,6 +320,7 @@ After changing `gateway.config.json` or `.env.*`, run `gateway-task.ps1 restart`
 - `@modelcontextprotocol/sdk`
 - `axios`
 - `dotenv`
+- `ioredis`
 - `kafkajs`
 - `mongodb`
 - `mqtt`

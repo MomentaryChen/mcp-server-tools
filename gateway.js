@@ -19,7 +19,7 @@ import { loadEnvFile } from "./lib/common.js";
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 const configPath = path.resolve(rootDir, process.env.GATEWAY_CONFIG || "gateway.config.json");
-const MODULES = ["hello", "files", "axios", "mysql", "mongodb", "tdengine", "kafka", "mqtt", "outlook"];
+const MODULES = ["hello", "files", "axios", "mysql", "mongodb", "tdengine", "kafka", "mqtt", "outlook", "redis"];
 const MAX_BODY_BYTES = 16 * 1024 * 1024;
 
 // ---------------------------------------------------------------- logging
