@@ -12,6 +12,7 @@
 - `servers/mysql.js` - MySQL 查詢與資料寫入工具
 - `servers/tdengine.js` - TDengine SQL 查詢與資料操作（REST）
 - `servers/mongodb.js` - MongoDB 查詢 / 新增 / 更新 / 刪除 / 列集合
+- `servers/redis.js` - Redis key 掃描 / 讀取、INFO、受限的單一指令
 - `servers/files.js` - 檔案讀取工具
 - `servers/axios.js` - HTTP GET/POST/PUT/DELETE 工具
 - `servers/mqtt.js` - MQTT 訂閱/發布與動態主題管理
@@ -81,6 +82,14 @@ SSH tunnel 每 30 秒送 keepalive；tunnel 斷線（例如 NAT 閒置逾時）�
 - `list_mongo_collections`
 
 所有 Mongo 工具的 `query`/`filter`/`document(s)`/`update` 都接受 Extended JSON，例如 `{ "$date": "2026-01-01T00:00:00Z" }` 會存成 BSON Date，`{ "$oid": "..." }` 會轉成 ObjectId。所有 Mongo 工具都可選填 `database`（預設 `MONGO_DATABASE`）。
+
+### `servers/redis.js`（`redis-tools`）
+- `redis_scan` — 以 SCAN 搭配 glob `pattern` 與選填 `type` 列出 key（不使用 `KEYS`）；回傳 `{ keys, cursor, done }`，把 `cursor` 傳回即可接續
+- `redis_get` — 讀取任一型別的 key 與 TTL；集合型別最多回傳 `limit` 筆並附總長度，過長字串截到 `REDIS_MAX_RESPONSE_CHARS`
+- `redis_info` — `INFO`（可指定 section）加上 `DBSIZE`
+- `redis_command` — 執行單一指令，例如 `{ command: "HGET", args: ["k", "f"] }`。依伺服器 `COMMAND INFO` 判斷指令類別：讀取指令需 `REDIS_QUERY_OPERATION`，寫入指令需 `REDIS_WRITE_OPERATION`。admin / dangerous / blocking / pub-sub / scripting / transaction 類指令，以及 `KEYS`、`SELECT`、`CONFIG`、`FLUSH*` 一律拒絕
+
+設定：`REDIS_HOST`、`REDIS_PORT`、`REDIS_USERNAME`、`REDIS_PASSWORD`、`REDIS_DB`、`REDIS_TIMEOUT_MS`、`REDIS_MAX_RESPONSE_CHARS`，以及 `REDIS_SSH_JUMPS`（未設定時使用 `SSH_JUMPS`）。詳見 `.env.example`。
 
 ### `servers/files.js`（`file-tools`）
 - `readFile`
@@ -207,6 +216,7 @@ node servers/hello.js
 node servers/mysql.js
 node servers/tdengine.js
 node servers/mongodb.js
+node servers/redis.js
 node servers/files.js
 node servers/axios.js
 node servers/mqtt.js --host alpha --topics "/events/#"
@@ -310,6 +320,7 @@ claude mcp add --transport http --scope user mysql-alpha-tools http://127.0.0.1:
 - `@modelcontextprotocol/sdk`
 - `axios`
 - `dotenv`
+- `ioredis`
 - `kafkajs`
 - `mongodb`
 - `mqtt`

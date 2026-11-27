@@ -16,6 +16,10 @@
       "module": "mysql",
       "envFile": ".env.alpha"
     },
+    "redis-alpha-tools": {
+      "module": "redis",
+      "envFile": ".env.alpha"
+    },
     "mongodb-alpha-tools": {
       "module": "mongodb",
       "envFile": ".env.alpha"
